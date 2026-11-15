@@ -7,7 +7,7 @@ import { alertPhones, sendLinq } from './alerter'
 import { evaluationNear, insertAlert, upsertSession, sessionStats, alertRows, db, insertRecorded, latestBacktest, logRows, saveSubscription, sessionById, sessionRows } from './db'
 import type { Env } from './env'
 import { blockSurroundings } from './feeds'
-import { buildPlan, cachedPlan } from './plan'
+import { cachedPlan } from './plan'
 import { planText } from './plan-alerts'
 
 export { RanchDO } from './ranch-do'
@@ -183,7 +183,8 @@ app.post('/api/plan/text', async c => {
   const jobMinutes = Math.min(Math.max(Number(b?.jobMinutes) || 45, 15), 600)
   const field = { id: String(b?.id ?? 'field'), name: String(b?.name ?? 'Field').slice(0, 80), lat, lon }
   const sql = db(c.env)
-  const plan = await buildPlan(sql, field, jobMinutes)
+  // The same plan and the same whole-job windows the page shows.
+  const plan = await cachedPlan(sql, field, jobMinutes, p => c.executionCtx.waitUntil(p))
   if ('error' in plan) return c.json({ sent: 0, text: '', error: plan.error }, 502)
   const text = planText(field.name, jobMinutes, plan.windows[0] ?? null, Date.now())
   const phones = alertPhones(c.env)

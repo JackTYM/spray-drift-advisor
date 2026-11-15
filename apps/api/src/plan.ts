@@ -1,5 +1,5 @@
 import {
-  BLOCKS, analyzeTerrain, azmetAllLatestUrl, distanceM, findWindows, fuse, leaveOneOut, metarUrl, obsFromAzmetAll, obsFromMetar, planHours, residuals, terrainPoints,
+  BLOCKS, analyzeTerrain, azmetAllLatestUrl, distanceM, jobWindows, fuse, leaveOneOut, metarUrl, obsFromAzmetAll, obsFromMetar, planHours, residuals, terrainPoints,
   type FieldEstimate, type HourModel, type ModelNow, type PlanHour, type SensitiveSite, type Skill, type SprayWindow, type StationObs, type Terrain,
 } from '@drift/engine'
 import { cacheGet, cachePut, type Sql } from './db'
@@ -94,13 +94,13 @@ async function fieldTerrain(sql: Sql, key: string, lat: number, lon: number): Pr
 }
 
 /**
- * Buildings within 300 m of each block's centre, by compass sector, counted once from the Microsoft building
- * footprints the 3D view draws (apps/web/public/buildings.json). An hour whose wind blows toward them is not a window.
+ * Buildings within 150 m of each block's edge, grouped by their bearing from the block centre in 15 degree steps.
+ * Counted once from the Microsoft building footprints the 3D view draws (apps/web/public/buildings.json).
+ * An hour whose wind blows toward any of them is closed, the same test the 3D view uses to mark buildings.
  */
-const NEIGHBOUR_M = 300
-const NEIGHBOURS: Record<string, { dir: string; bearingDeg: number; count: number; nearestM: number }[]> = {"block-1": [], "block-2": [], "block-3": [{"dir": "N", "bearingDeg": 0, "count": 6, "nearestM": 188}, {"dir": "NE", "bearingDeg": 45, "count": 2, "nearestM": 135}]}
+const NEIGHBOURS: Record<string, { bearingDeg: number; count: number; edgeM: number }[]> = {"block-1": [], "block-2": [], "block-3": [{"bearingDeg": 0, "count": 1, "edgeM": 53}, {"bearingDeg": 15, "count": 4, "edgeM": 63}, {"bearingDeg": 30, "count": 3, "edgeM": 15}]}
 const neighbours = (blockId: string): SensitiveSite[] => (NEIGHBOURS[blockId] ?? []).map(n => ({
-  name: `${n.count} ${n.count === 1 ? 'building' : 'buildings'} within ${NEIGHBOUR_M} m to the ${n.dir}`, type: 'building', bearingDeg: n.bearingDeg, distanceM: n.nearestM,
+  name: `buildings ${n.edgeM} m from the edge of this block`, type: 'building', bearingDeg: n.bearingDeg, distanceM: n.edgeM,
 }))
 
 export interface Plan {
@@ -142,7 +142,7 @@ export async function buildPlan(sql: Sql, f: { id: string; name: string; lat: nu
   return {
     field: f, generatedMs: nowMs, jobMinutes, terrain, estimate, skill, sigma: { tempF: Math.round(sigma.tempF * 10) / 10, windMph: Math.round(sigma.windMph * 10) / 10 },
     stations: pairs.map(p => ({ ...p.o, modelTempF: p.m.tempF, modelWindMph: p.m.windMph })),
-    hours: planned, windows: findWindows(planned, jobMinutes), sites,
+    hours: planned, windows: jobWindows(planned, jobMinutes, { nowMs }), sites,
   }
 }
 
@@ -154,7 +154,7 @@ const planMemo = new Map<string, Plan>()
 export async function cachedPlan(sql: Sql, f: { id: string; name: string; lat: number; lon: number }, jobMinutes: number, keep: (p: Promise<unknown>) => void): Promise<Plan | { error: string }> {
   const key = `plan:${f.lat.toFixed(4)},${f.lon.toFixed(4)}`
   const fresh = (p: Plan | undefined | null): p is Plan => !!p && Date.now() - p.generatedMs < PLAN_TTL_MS
-  const dress = (p: Plan): Plan => ({ ...p, field: f, jobMinutes, windows: findWindows(p.hours, jobMinutes) })
+  const dress = (p: Plan): Plan => ({ ...p, field: f, jobMinutes, windows: jobWindows(p.hours, jobMinutes, { nowMs: Date.now() }) })
   const inMemory = planMemo.get(key)
   if (fresh(inMemory)) return dress(inMemory)
   const stored = (await cacheGet(sql, key).catch(() => null)) as Plan | null

@@ -103,13 +103,16 @@ export function planHours(p: PlanInput): PlanHour[] {
     let confidence = normalCdf(lowMargin / sw) * normalCdf((lim.max - hi.windMph) / sw) * normalCdf((lim.max * 1.5 - gust) / (sw * 1.5)) * normalCdf(margin / sd)
     // Rules the numbers above do not cover, such as wind toward a sensitive site or strong direction shear.
     const other = ev.triggers.filter(t => !['inversion', 'inversion-forming', 'wind-low', 'wind-high'].includes(t.rule))
-    const otherFactor = other.some(t => t.level === 'STOP') ? 0.15 : other.length ? 0.6 : 1
+    // A plan never books a job with the wind carrying spray toward buildings or another sensitive site.
+    const towardSite = ev.triggers.some(t => t.rule === 'sensitive-site')
+    const status: Status = towardSite ? 'STOP' : ev.status
+    const otherFactor = towardSite || other.some(t => t.level === 'STOP') ? 0.15 : other.length ? 0.6 : 1
     confidence *= otherFactor
 
-    const reasons = ev.triggers.map(t => t.text)
-    if (gust > lim.max * 1.5 && ev.status === 'GO') reasons.push(`Gusts to ${Math.round(gust)} mph are forecast.`)
+    const reasons = ev.triggers.map(t => (t.rule === 'sensitive-site' ? `${t.text} Do not spray.` : t.text))
+    if (gust > lim.max * 1.5 && status === 'GO') reasons.push(`Gusts to ${Math.round(gust)} mph are forecast.`)
     return {
-      timeMs: h.timeMs, status: ev.status, confidence: Math.round(confidence * 100) / 100, reasons, reading, deltaF,
+      timeMs: h.timeMs, status, confidence: Math.round(confidence * 100) / 100, reasons, reading, deltaF,
       lowWindMph: lo.windMph, highWindMph: hi.windMph, gustMph: Math.round(gust * 10) / 10,
       margins: { windLow: lowMargin, windHigh: lim.max - hi.windMph, gust: lim.max * 1.5 - gust, inversion: margin, sw, sd, other: otherFactor },
     }
