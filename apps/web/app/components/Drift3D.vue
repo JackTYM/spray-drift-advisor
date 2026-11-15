@@ -4,7 +4,8 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { MapboxOverlay } from '@deck.gl/mapbox'
 import { ScatterplotLayer } from '@deck.gl/layers'
 import {
-  ALOFT_M, BLOCKS, CANOPY_M, LOW_M, SETTLE, batchDrift, downwindOf, driftEnv, ends, gaussian, mulberry32, stepDroplet,
+  ALOFT_M, BLOCKS, CANOPY_M, LOW_M, SETTLE, batchDrift, bounds, downwindOf, driftEnv, ends, gaussian, localOutline, mulberry32, pointInPolygon,
+  rowSpans, stepDroplet, toLngLat,
   type BlockSnapshot, type Building, type DriftEnv, type Droplet, type Job, type Surroundings,
 } from '@drift/engine'
 
@@ -12,7 +13,7 @@ const props = defineProps<{ blocks: BlockSnapshot[]; selected: string; surroundi
 
 /** Heights are drawn five times taller than true so a 30 ft tower is visible at map scale. */
 const EXAG = 5
-const HALF = 150
+const ROW_SPACING_M = 12
 const M_PER_DEG = 111_320
 const statusColor = { GO: '#2fbf71', CAUTION: '#f0b429', STOP: '#ef4f3c' } as const
 
@@ -27,7 +28,7 @@ let ready = false
 let env: DriftEnv | null = null
 let drops: Droplet[] = []
 let deposits: { x: number; y: number; off: boolean }[] = []
-let sprayerX = -HALF + 20, sprayerDir = 1
+let sprayerRow = 0, sprayerX = 0, sprayerDir = 1
 /** Real building outlines from OpenStreetMap, fetched once and shipped with the app. */
 const buildings = ref<Record<string, Building[]>>({})
 const rand = mulberry32(7)
@@ -35,10 +36,11 @@ const g = gaussian(rand)
 
 const model = computed(() => BLOCKS.find(b => b.id === props.selected) ?? BLOCKS[0]!)
 const snap = computed(() => props.blocks.find(b => b.id === props.selected) ?? null)
+/** The selected block's real field boundary and tree rows, in metres from its centre. */
+const field = computed(() => localOutline(model.value))
+const spans = computed(() => rowSpans(field.value, ROW_SPACING_M))
 const facts = computed(() => downwindFacts(snap.value, props.surroundings))
 
-const toLngLat = (lat0: number, lon0: number, x: number, y: number): [number, number] =>
-  [lon0 + x / (M_PER_DEG * Math.cos((lat0 * Math.PI) / 180)), lat0 + y / M_PER_DEG]
 const rect = (lat0: number, lon0: number, x0: number, y0: number, x1: number, y1: number) =>
   [[toLngLat(lat0, lon0, x0, y0), toLngLat(lat0, lon0, x1, y0), toLngLat(lat0, lon0, x1, y1), toLngLat(lat0, lon0, x0, y1), toLngLat(lat0, lon0, x0, y0)]]
 const feature = (coordinates: number[][][], properties: Record<string, unknown>) => ({ type: 'Feature' as const, geometry: { type: 'Polygon' as const, coordinates }, properties })
@@ -54,7 +56,7 @@ const receptors = computed(() => (props.surroundings?.addresses ?? []).filter(a 
 const batch = computed(() => {
   const r = snap.value?.reading
   if (!r) return null
-  const res = batchDrift(r, props.droplet, receptors.value)
+  const res = batchDrift(r, props.droplet, receptors.value, { field: field.value })
   let worst = -1
   res.perThousand.forEach((v, i) => { if (v > 0 && (worst < 0 || v > res.perThousand[worst]!)) worst = i })
   return { ...res, worst: worst < 0 ? null : { ...receptors.value[worst]!, perThousand: res.perThousand[worst]! } }
@@ -69,9 +71,9 @@ function drawStatic() {
   const rows = [], outlines = []
   for (const b of BLOCKS) {
     const status = props.blocks.find(x => x.id === b.id)?.evaluation?.status
-    // Rows run east-west, as they do in the imagery.
-    for (let y = -HALF + 6; y < HALF; y += 12) rows.push(feature(rect(b.lat, b.lon, -HALF, y - 2.5, HALF, y + 2.5), {}))
-    outlines.push(feature(rect(b.lat, b.lon, -HALF - 6, -HALF - 6, HALF + 6, HALF + 6), { color: status ? statusColor[status] : '#93a5bb' }))
+    // Rows run east-west, as they do in the imagery, and are clipped to the field boundary.
+    for (const r of rowSpans(localOutline(b), ROW_SPACING_M)) rows.push(feature(rect(b.lat, b.lon, r.x0, r.y - 2.5, r.x1, r.y + 2.5), {}))
+    outlines.push(feature([[...b.outline, b.outline[0]!]], { color: status ? statusColor[status] : '#93a5bb' }))
   }
   setData('rows', collection(rows))
   setData('outlines', collection(outlines))
@@ -79,7 +81,8 @@ function drawStatic() {
   const m = model.value
   const r = snap.value?.reading
   const hiFt = r ? ends(r).hi.heightFt : 30
-  setData('tower', collection([feature(rect(m.lat, m.lon, HALF + 10, -2, HALF + 14, 2), { h: hiFt * 0.3048 * EXAG })]))
+  const east = bounds(field.value).maxX
+  setData('tower', collection([feature(rect(m.lat, m.lon, east + 8, -2, east + 12, 2), { h: hiFt * 0.3048 * EXAG })]))
 
   // Real outlines where OpenStreetMap has them; otherwise a small box at each county address point.
   const outlines3d = BLOCKS.flatMap(b => buildings.value[b.id] ?? [])
@@ -98,7 +101,7 @@ function drawStatic() {
   }
 
   const lid = env?.lidM ?? null
-  setData('lid', collection(lid === null ? [] : [feature(rect(m.lat, m.lon, -520, -520, 520, 520), { base: lid * EXAG, top: lid * EXAG + 3 })]))
+  setData('lid', collection(lid === null ? [] : [feature(rect(m.lat, m.lon, -750, -750, 750, 750), { base: lid * EXAG, top: lid * EXAG + 3 })]))
 }
 
 function tick() {
@@ -107,18 +110,28 @@ function tick() {
   const m = model.value
   const dt = 0.9
 
-  // The sprayer works up and down the rows, blowing droplets into the canopy.
-  sprayerX += sprayerDir * 1.6
-  if (Math.abs(sprayerX) > HALF - 15) sprayerDir *= -1
-  for (let i = 0; i < 5 && drops.length < 2600; i++) {
-    drops.push({ x: sprayerX + (rand() - 0.5) * 6, y: -HALF + 42 + (rand() - 0.5) * 12, z: 1 + rand() * (CANOPY_M - 1), vs: SETTLE[props.droplet] * (0.6 + rand() * 0.8), age: 0, leftLow: false, hit: -1 })
-    stats.emitted++
+  // The sprayer drives each alley in turn, back and forth across the field, blowing droplets into the canopy.
+  const rows = spans.value
+  if (rows.length) {
+    const row = rows[sprayerRow % rows.length]!
+    sprayerX += sprayerDir * 2.4
+    if (sprayerX > row.x1 - 6 || sprayerX < row.x0 + 6) {
+      sprayerRow = (sprayerRow + 1) % rows.length
+      sprayerDir *= -1
+      const next = rows[sprayerRow]!
+      sprayerX = sprayerDir > 0 ? next.x0 + 6 : next.x1 - 6
+    }
+    const alleyY = rows[sprayerRow]!.y + ROW_SPACING_M / 2
+    for (let i = 0; i < 5 && drops.length < 2600; i++) {
+      drops.push({ x: sprayerX + (rand() - 0.5) * 6, y: alleyY + (rand() - 0.5) * 8, z: 1 + rand() * (CANOPY_M - 1), vs: SETTLE[props.droplet] * (0.6 + rand() * 0.8), age: 0, leftLow: false, hit: -1 })
+      stats.emitted++
+    }
   }
   drops = drops.filter(p => {
-    const alive = stepDroplet(p, env!, dt, g, HALF)
-    const far = Math.abs(p.x) > 700 || Math.abs(p.y) > 700 || p.age > 900
+    const alive = stepDroplet(p, env!, dt, g, field.value)
+    const far = Math.abs(p.x) > 900 || Math.abs(p.y) > 900 || p.age > 900
     if (alive && !far) return true
-    const inside = Math.abs(p.x) <= HALF && Math.abs(p.y) <= HALF
+    const inside = pointInPolygon(p.x, p.y, field.value)
     if (p.z >= ALOFT_M) stats.aloft++
     else if (p.leftLow || !inside) stats.offLow++
     else stats.landed++
@@ -145,9 +158,9 @@ function tick() {
 function view(kind: 'overview' | 'side' | 'top') {
   const m = model.value
   const toward = facts.value && !facts.value.calm ? facts.value.towardDeg : 90
-  const cam = kind === 'top' ? { pitch: 0, bearing: 0, zoom: 15.4 }
-    : kind === 'side' ? { pitch: 80, bearing: toward - 90, zoom: 15.9 }
-    : { pitch: 58, bearing: toward - 125, zoom: 15.3 }
+  const cam = kind === 'top' ? { pitch: 0, bearing: 0, zoom: 15.1 }
+    : kind === 'side' ? { pitch: 80, bearing: toward - 90, zoom: 15.5 }
+    : { pitch: 58, bearing: toward - 125, zoom: 15 }
   map?.easeTo({ center: [m.lon, m.lat], duration: 900, ...cam })
 }
 
@@ -170,7 +183,7 @@ onMounted(() => {
   try {
     maplibregl.setWorkerUrl('/maplibre-gl-worker.mjs')
     map = new maplibregl.Map({
-      container: el.value!, center: [m.lon, m.lat], zoom: 15.3, pitch: 58, bearing: -35, maxPitch: 85, attributionControl: { compact: true },
+      container: el.value!, center: [m.lon, m.lat], zoom: 15, pitch: 58, bearing: -35, maxPitch: 85, attributionControl: { compact: true },
       style: {
         version: 8,
         sources: { sat: { type: 'raster', tileSize: 256, maxzoom: 16, tiles: ['https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}'], attribution: 'Imagery: USGS The National Map. Buildings: OpenStreetMap contributors. Addresses: Pima County.' } },
@@ -203,6 +216,7 @@ onBeforeUnmount(() => { cancelAnimationFrame(frame); map?.remove() })
 watch(() => [snap.value?.reading, props.surroundings, props.blocks.map(b => b.evaluation?.status).join()], resetAir)
 watch(() => props.selected, () => {
   drops = []; deposits = []
+  sprayerRow = 0; sprayerX = spans.value[0]?.x0 ?? 0; sprayerDir = 1
   Object.assign(stats, { emitted: 0, landed: 0, offLow: 0, aloft: 0 })
   resetAir()
   view('overview')
@@ -233,7 +247,7 @@ const pct = (n: number) => `${Math.round((n / done.value) * 100)}%`
       </div>
       <p class="muted">
         Droplet colour shows height: <span style="color:#ff7864">below 15 ft</span>, <span style="color:#ffd678">15 to 40 ft</span>, <span style="color:#96cdff">above 40 ft</span>.
-        Pink dots are deposits outside the block. <span v-if="hasLid">The amber sheet is the estimated top of the inversion.</span>
+        Dots on the ground are where droplets came down: pale purple inside the block, pink outside it. <span v-if="hasLid">The amber sheet is the estimated top of the inversion.</span>
         This is a model for comparing conditions with each other, not a prediction of how much spray lands where.
       </p>
     </template>

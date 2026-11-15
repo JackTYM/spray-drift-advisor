@@ -18,8 +18,11 @@ export interface BlockModel {
   name: string
   crop: string
   note: string
+  /** Centre of the field. */
   lat: number
   lon: number
+  /** Field boundary as [lon, lat] corners, traced from the USGS imagery. */
+  outline: [number, number][]
   /** Regional 2 m to 80 m difference (°F) this block needs before it inverts. Low ground: 0. */
   offsetF: number
   /** Strength of the block's inversion relative to the regional signal. */

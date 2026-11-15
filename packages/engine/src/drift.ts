@@ -1,4 +1,5 @@
 import { explain, inversionTopFt } from './explain'
+import { pointInPolygon, randomPointIn, squareOutline, type Pt } from './field'
 import { mulberry32 } from './tower'
 import type { Job, Reading } from './types'
 
@@ -71,7 +72,7 @@ export const gaussian = (rand: () => number) => () => {
 }
 
 /** Advances one droplet. Returns false when it has landed or mixed out aloft. */
-export function stepDroplet(p: Droplet, env: DriftEnv, dt: number, g: () => number, halfBlockM: number): boolean {
+export function stepDroplet(p: Droplet, env: DriftEnv, dt: number, g: () => number, field: Pt[]): boolean {
   const w = windAtM(env, p.z)
   p.x += w[0] * dt + g() * Math.sqrt(2 * env.kh * dt)
   p.y += w[1] * dt + g() * Math.sqrt(2 * env.kz * dt + 2 * env.kh * dt) * 0.7
@@ -79,7 +80,7 @@ export function stepDroplet(p: Droplet, env: DriftEnv, dt: number, g: () => numb
   // A stable layer does not let droplets through its top: they stay in the layer.
   if (env.lidM !== null && p.z > env.lidM) p.z = env.lidM - (p.z - env.lidM) * 0.3
   p.age += dt
-  if (p.z < LOW_M && (Math.abs(p.x) > halfBlockM || Math.abs(p.y) > halfBlockM)) p.leftLow = true
+  if (p.z < LOW_M && !pointInPolygon(p.x, p.y, field)) p.leftLow = true
   return p.z > 0 && p.z < ALOFT_M * 2.5
 }
 
@@ -94,8 +95,8 @@ export interface DriftResult {
   perThousand: number[]
 }
 
-export function batchDrift(reading: Reading, droplet: Job['droplet'], receptors: { x: number; y: number }[] = [], opts: { n?: number; steps?: number; halfBlockM?: number; reachM?: number; seed?: number } = {}): DriftResult {
-  const { n = 300, steps = 600, halfBlockM = 150, reachM = 20, seed = 1234 } = opts
+export function batchDrift(reading: Reading, droplet: Job['droplet'], receptors: { x: number; y: number }[] = [], opts: { n?: number; steps?: number; field?: Pt[]; reachM?: number; seed?: number } = {}): DriftResult {
+  const { n = 300, steps = 600, field = squareOutline(150), reachM = 20, seed = 1234 } = opts
   const env = driftEnv(reading)
   const rand = mulberry32(seed)
   const g = gaussian(rand)
@@ -103,17 +104,18 @@ export function batchDrift(reading: Reading, droplet: Job['droplet'], receptors:
   let landed = 0, offLow = 0, aloft = 0
   const hits = receptors.map(() => 0)
   for (let i = 0; i < n; i++) {
-    const p: Droplet = { x: (rand() - 0.5) * 2 * (halfBlockM - 10), y: (rand() - 0.5) * 2 * (halfBlockM - 10), z: 1 + rand() * (CANOPY_M - 1), vs: SETTLE[droplet], age: 0, leftLow: false, hit: -1 }
+    const start = randomPointIn(field, rand)
+    const p: Droplet = { x: start.x, y: start.y, z: 1 + rand() * (CANOPY_M - 1), vs: SETTLE[droplet], age: 0, leftLow: false, hit: -1 }
     const seen = new Set<number>()
     let alive = true
     for (let s = 0; s < steps && alive; s++) {
-      alive = stepDroplet(p, env, dt, g, halfBlockM)
+      alive = stepDroplet(p, env, dt, g, field)
       if (p.z < LOW_M * 1.4) receptors.forEach((r, j) => { if (!seen.has(j) && Math.hypot(p.x - r.x, p.y - r.y) <= reachM) { seen.add(j); hits[j]!++ } })
     }
     if (p.z >= ALOFT_M) aloft++
     else if (p.leftLow) offLow++
     else if (p.z <= 0) landed++
-    else offLow += Math.abs(p.x) > halfBlockM || Math.abs(p.y) > halfBlockM ? 1 : 0
+    else offLow += pointInPolygon(p.x, p.y, field) ? 0 : 1
   }
   const pct = (v: number) => Math.round((v / n) * 1000) / 10
   return { landedPct: pct(landed), offLowPct: pct(offLow), aloftPct: pct(aloft), perThousand: hits.map(h => Math.round((h / n) * 10000) / 10) }

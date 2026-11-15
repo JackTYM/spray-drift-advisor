@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { rankWindows, type Job, type RankedWindow, type Reading, type Status, type Surroundings } from '@drift/engine'
+import { BLOCKS, localOutline, rankWindows, type Job, type RankedWindow, type Reading, type Status, type Surroundings } from '@drift/engine'
 
-const props = defineProps<{ forecast: { timeMs: number; status: Status; reading?: Reading }[]; surroundings: Surroundings | null; droplet: Job['droplet'] }>()
+const props = defineProps<{ blockId: string; forecast: { timeMs: number; status: Status; reading?: Reading }[]; surroundings: Surroundings | null; droplet: Job['droplet'] }>()
 
 const receptors = computed(() => (props.surroundings?.addresses ?? []).filter(a => a.distanceM <= 600).slice(0, 12).map(a => {
   const b = (a.bearingDeg * Math.PI) / 180
@@ -9,10 +9,10 @@ const receptors = computed(() => (props.surroundings?.addresses ?? []).filter(a 
 }))
 const ranked = ref<RankedWindow[]>([])
 // The model run is heavy, so it repeats only when the forecast, the droplet size or the receptors change.
-const key = computed(() => `${props.forecast[0]?.timeMs}:${props.forecast.map(f => f.status[0]).join('')}:${props.droplet}:${receptors.value.length}`)
+const key = computed(() => `${props.blockId}:${props.forecast[0]?.timeMs}:${props.forecast.map(f => f.status[0]).join('')}:${props.droplet}:${receptors.value.length}`)
 watch(key, () => {
   const usable = props.forecast.filter((f): f is { timeMs: number; status: Status; reading: Reading } => !!f.reading)
-  ranked.value = usable.length ? rankWindows(usable, props.droplet, receptors.value).slice(0, 4) : []
+  ranked.value = usable.length ? rankWindows(usable, props.droplet, receptors.value, localOutline(BLOCKS.find(b => b.id === props.blockId) ?? BLOCKS[0]!)).slice(0, 4) : []
 }, { immediate: true })
 </script>
 

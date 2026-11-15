@@ -86,7 +86,7 @@ const levels = (row: any) => (row.levels ?? []).map((l: any) => `${l.heightFt} f
 
     <section class="card">
       <h2>Best hours to spray {{ blockName(selected) }}</h2>
-      <WindowRanking :forecast="history.forecast" :surroundings="surroundings" :droplet="session?.job.droplet ?? 'fine'" />
+      <WindowRanking :block-id="selected" :forecast="history.forecast" :surroundings="surroundings" :droplet="session?.job.droplet ?? 'fine'" />
     </section>
 
     <section class="card">

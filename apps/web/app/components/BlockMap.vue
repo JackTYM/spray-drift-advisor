@@ -43,6 +43,7 @@ function draw() {
     const m = BLOCKS.find(x => x.id === b.id)
     if (!m) continue
     const status = b.evaluation?.status
+    L.polygon(m.outline.map(([lon, lat]) => [lat, lon] as [number, number]), { color: status ? color[status] : '#93a5bb', weight: 3, fillOpacity: 0.12 }).addTo(layer)
     L.circleMarker([m.lat, m.lon], { radius: b.id === props.selected ? 13 : 10, color: '#fff', weight: b.id === props.selected ? 3 : 1.5, fillColor: status ? color[status] : '#93a5bb', fillOpacity: 1 })
       .bindTooltip(`${b.name}: ${status ?? 'waiting'}`, { permanent: true, direction: 'top', offset: [0, -10], className: 'block-label' })
       .on('click', () => emit('select', b.id)).addTo(layer)

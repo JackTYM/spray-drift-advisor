@@ -1,4 +1,5 @@
 import { batchDrift } from './drift'
+import type { Pt } from './field'
 import type { Job, Reading, Status } from './types'
 
 export interface RankedWindow {
@@ -15,8 +16,8 @@ export interface RankedWindow {
  * Ranks one-hour blocks inside forecast GO periods by modelled off-target drift, lowest first.
  * A GO period can still differ a lot in how much spray leaves the block; this picks the best hour.
  */
-export function rankWindows(forecast: { timeMs: number; status: Status; reading: Reading }[], droplet: Job['droplet'], receptors: { x: number; y: number }[] = [], slots = 2): RankedWindow[] {
-  const drift = forecast.map(f => (f.status === 'GO' ? batchDrift(f.reading, droplet, receptors, { n: 160, steps: 400 }) : null))
+export function rankWindows(forecast: { timeMs: number; status: Status; reading: Reading }[], droplet: Job['droplet'], receptors: Pt[] = [], field?: Pt[], slots = 2): RankedWindow[] {
+  const drift = forecast.map(f => (f.status === 'GO' ? batchDrift(f.reading, droplet, receptors, { n: 160, steps: 400, field }) : null))
   const out: RankedWindow[] = []
   for (let i = 0; i + slots <= forecast.length; i++) {
     const part = drift.slice(i, i + slots)
