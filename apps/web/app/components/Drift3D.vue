@@ -167,9 +167,11 @@ function tick() {
   overlay.setProps({
     layers: [
       new ScatterplotLayer({
-        id: 'deposits', data: deposits, radiusUnits: 'meters', getRadius: 4, stroked: false,
-        getPosition: (d: { x: number; y: number }) => [...toLngLat(m.lat, m.lon, d.x, d.y), 0.5],
-        getFillColor: (d: { off: boolean }) => (d.off ? [226, 70, 215, 190] : [170, 150, 255, 90]),
+        // Where droplets came down. Inside the block they are drawn on top of the trees so they are not hidden; outside, on the ground.
+        id: 'deposits', data: deposits, radiusUnits: 'meters', stroked: false,
+        getRadius: (d: { off: boolean }) => (d.off ? 6 : 3),
+        getPosition: (d: { x: number; y: number; off: boolean }) => [...toLngLat(m.lat, m.lon, d.x, d.y), d.off ? 0.6 : CANOPY_M * EXAG + 1],
+        getFillColor: (d: { off: boolean }) => (d.off ? [214, 72, 232, 235] : [176, 255, 96, 210]),
       }),
       new ScatterplotLayer({
         id: 'drops', data: drops, radiusUnits: 'pixels', getRadius: props.droplet === 'fine' ? 1.6 : props.droplet === 'medium' ? 2.1 : 2.7, billboard: true, stroked: false,
@@ -272,7 +274,7 @@ const pct = (n: number) => `${Math.round((n / done.value) * 100)}%`
       <p class="muted">
         <template v-if="facts && !facts.calm">The amber arrow shows where the wind at the lowest level carries spray: toward the {{ facts.dir }}. The sprayer starts on the upwind side. </template>
         Droplet colour shows height: <span style="color:#ff7864">below 15 ft</span>, <span style="color:#ffd678">15 to 40 ft</span>, <span style="color:#96cdff">above 40 ft</span>.
-        Dots on the ground are where droplets came down: pale purple inside the block, pink outside it. <span v-if="hasLid">The amber sheet is the estimated top of the inversion.</span>
+Where spray lands: <span style="color:#b0ff60">bright green dots</span> landed on the block, <span style="color:#e06cf0">purple dots</span> landed outside it. <span v-if="hasLid">The amber sheet is the estimated top of the inversion.</span>
         This is a model for comparing conditions with each other, not a prediction of how much spray lands where.
       </p>
     </template>

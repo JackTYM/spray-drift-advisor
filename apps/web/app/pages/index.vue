@@ -244,6 +244,14 @@ const askContext = computed(() => {
       </aside>
 
       <div class="evidence">
+        <section v-if="fields.length > 1" class="card">
+          <div class="cardhead">
+            <h2>The next 48 hours, every field</h2>
+            <span class="muted">Green is sprayable, amber marginal, red not. Brighter means more sure. Click any hour.</span>
+          </div>
+          <FieldsOverview :fields="ordered.map(x => x.f)" :plans="plans" :selected-id="field.id" :selected-ms="hour?.timeMs ?? 0" @select="(id, ms) => { fieldId = id; nextTick(() => { picked = ms || null }) }" />
+        </section>
+
         <section class="card">
           <div class="cardhead">
             <h2>The next 48 hours at {{ field.name }}</h2>
