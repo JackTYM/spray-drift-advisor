@@ -1,10 +1,10 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import Anthropic from '@anthropic-ai/sdk'
-import { BLOCKS, RANCH, compassOf, ends, parseReading, readingsFromCsv, summarize, type CsvMapping, type Snapshot } from '@drift/engine'
+import { BLOCKS, RANCH, areaAcres, compassOf, ends, localOutline, type Conditions, type SessionState, parseReading, readingsFromCsv, summarize, type CsvMapping, type Snapshot } from '@drift/engine'
 import { ask, readLabel } from './ai'
 import { alertPhones, sendLinq } from './alerter'
-import { alertRows, db, insertRecorded, latestBacktest, logRows, saveSubscription, sessionById, sessionRows } from './db'
+import { sessionStats, alertRows, db, insertRecorded, latestBacktest, logRows, saveSubscription, sessionById, sessionRows } from './db'
 import type { Env } from './env'
 import { blockSurroundings } from './feeds'
 
@@ -71,6 +71,63 @@ app.get('/api/sessions/:id/record', async c => {
       (e.triggers as { text: string }[]).map(t => t.text).join(' | '), JSON.stringify(e.levels ?? [])].map(csvCell).join(',')),
   ]
   return new Response(lines.join('\n'), { headers: { 'Content-Type': 'text/csv', 'Content-Disposition': `attachment; filename="spray-record-${id}.csv"` } })
+})
+
+// ---------- Spray log: one row per job or decision not to spray ----------
+
+const WORST = ['GO', 'CAUTION', 'STOP']
+const stamp = new Intl.DateTimeFormat('en-US', { timeZone: RANCH.timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
+const when = (ms?: number) => (ms ? stamp.format(new Date(ms)) : '')
+const weather = (c?: Conditions) => (c ? {
+  status: c.status, groundOnly: c.groundStatus, tempDiffF: c.deltaF, richardson: c.ri,
+  low: c.levels[0] ? `${c.levels[0].heightFt} ft: ${c.levels[0].tempF}°F, ${c.levels[0].windMph} mph from ${compassOf(c.levels[0].windDirDeg)}` : '',
+  high: c.levels[1] ? `${c.levels[1].heightFt} ft: ${c.levels[1].tempF}°F, ${c.levels[1].windMph} mph from ${compassOf(c.levels[1].windDirDeg)}` : '',
+  inversion: c.deltaF > 0 ? 'Yes' : 'No', reasons: c.reasons.join(' '),
+} : null)
+
+async function sprayLog(env: Env) {
+  const sql = db(env)
+  const [sessions, stats] = await Promise.all([sessionRows(sql, 500), sessionStats(sql)])
+  const bySession = new Map(stats.map(r => [r.session_id as string, r]))
+  return sessions.map(r => r.state as SessionState).map(s => {
+    const block = BLOCKS.find(b => b.id === s.blockId)
+    const st = bySession.get(s.id)
+    return {
+      id: s.id, outcome: s.outcome ?? (s.phase === 'waiting' ? 'waiting' : 'sprayed'), phase: s.phase,
+      block: block?.name ?? s.blockId, crop: block?.crop ?? '', acres: block ? areaAcres(localOutline(block)) : null,
+      lat: block?.lat ?? null, lon: block?.lon ?? null,
+      started: when(s.startedMs), stopped: s.outcome === 'not-sprayed' ? '' : when(s.finishedMs),
+      minutes: s.outcome !== 'not-sprayed' && s.finishedMs ? Math.round((s.finishedMs - s.startedMs) / 60000) : null,
+      reentryAllowed: s.outcome !== 'not-sprayed' && s.finishedMs && s.job.reiHours ? when(s.finishedMs + s.job.reiHours * 3_600_000) : '',
+      job: s.job, overrideReason: s.overrideReason ?? '', holdReason: s.holdReason ?? '',
+      atStart: weather(s.startConditions), atStop: weather(s.stopConditions),
+      worstDuring: st ? WORST[Number(st.worst)] : '', evaluations: st ? Number(st.evaluations) : 0, alerts: st ? Number(st.alerts) : 0,
+    }
+  })
+}
+
+app.get('/api/spraylog', async c => {
+  const rows = await sprayLog(c.env)
+  if (c.req.query('format') !== 'csv') return c.json(rows)
+  const cols: [string, (r: (typeof rows)[number]) => unknown][] = [
+    ['Outcome', r => (r.outcome === 'not-sprayed' ? 'Did not spray' : r.outcome === 'waiting' ? 'Waiting' : 'Sprayed')],
+    ['Block', r => r.block], ['Crop', r => r.crop], ['Acres', r => r.acres], ['Latitude', r => r.lat], ['Longitude', r => r.lon],
+    ['Started (local)', r => r.started], ['Stopped (local)', r => r.stopped], ['Minutes', r => r.minutes],
+    ['Applicator', r => r.job.applicatorName], ['License or certificate no.', r => r.job.licenseNo],
+    ['Product', r => r.job.product], ['EPA Reg. No.', r => r.job.epaRegNo], ['Active ingredient', r => r.job.activeIngredient],
+    ['Rate per acre', r => r.job.ratePerAcre], ['Target pest', r => r.job.targetPest], ['Droplet size', r => r.job.droplet],
+    ['Re-entry interval (h)', r => r.job.reiHours], ['Re-entry allowed from (local)', r => r.reentryAllowed],
+    ['Downwind sensitive areas checked', r => (r.job.sensitiveAreasChecked ? 'Yes' : 'Not recorded')],
+    ['Status at start', r => r.atStart?.status], ['Ground station only at start', r => r.atStart?.groundOnly], ['Inversion at start', r => r.atStart?.inversion],
+    ['Temp difference at start (F)', r => r.atStart?.tempDiffF], ['Richardson no. at start', r => r.atStart?.richardson],
+    ['Lower sensor at start', r => r.atStart?.low], ['Upper sensor at start', r => r.atStart?.high], ['Reasons at start', r => r.atStart?.reasons],
+    ['Status at stop', r => r.atStop?.status], ['Inversion at stop', r => r.atStop?.inversion], ['Temp difference at stop (F)', r => r.atStop?.tempDiffF],
+    ['Lower sensor at stop', r => r.atStop?.low], ['Upper sensor at stop', r => r.atStop?.high],
+    ['Worst status during job', r => r.worstDuring], ['Evaluations logged', r => r.evaluations], ['Alerts sent', r => r.alerts],
+    ['Override reason', r => r.overrideReason], ['Reason for not spraying', r => r.holdReason], ['Record ID', r => r.id],
+  ]
+  const csv = [cols.map(c2 => csvCell(c2[0])).join(','), ...rows.map(r => cols.map(c2 => csvCell(c2[1](r))).join(','))].join('\n')
+  return new Response(csv, { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="stillair-spray-log.csv"' } })
 })
 
 app.get('/api/alerts', async c => c.json(await alertRows(db(c.env), null, 30)))

@@ -14,6 +14,17 @@ export interface Job {
   droplet: 'fine' | 'medium' | 'coarse'
   labelMinWindMph?: number
   labelMaxWindMph?: number
+  // Application details for the spray record. All optional; the applicator fills in what applies.
+  applicatorName?: string
+  licenseNo?: string
+  epaRegNo?: string
+  activeIngredient?: string
+  ratePerAcre?: string
+  targetPest?: string
+  /** Hours after application before workers may re-enter. */
+  reiHours?: number
+  /** The applicator confirmed they checked for schools, homes, workers, water and sensitive crops downwind. */
+  sensitiveAreasChecked?: boolean
 }
 export type RuleId =
   | 'inversion' | 'inversion-forming' | 'wind-low' | 'wind-high'
@@ -34,5 +45,17 @@ export interface Evaluation {
   deltaF: number
   ri: number
 }
+/** What the tool measured at one moment: saved when a job starts and stops, and when someone holds off. */
+export interface Conditions {
+  timeMs: number
+  status: Status
+  groundStatus: Status
+  deltaF: number
+  ri: number
+  levels: Level[]
+  ground: GroundObs | null
+  reasons: string[]
+}
+
 export interface SafeWindow { startMs: number; endMs: number }
 export interface SourceInfo { role: string; adapter: string; kind: string; detail: string; lastMs: number | null }

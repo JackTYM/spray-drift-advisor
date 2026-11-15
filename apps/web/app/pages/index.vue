@@ -17,6 +17,15 @@ watch(() => job.product, p => { job.volatility = products.value.find(x => x.name
 const labelMin = ref<number | null>(null)
 const labelMax = ref<number | null>(null)
 const overrideReason = ref('')
+const holdReason = ref('')
+/** Details for the spray record. The applicator's own details are remembered on this phone. */
+const details = reactive({ applicatorName: '', licenseNo: '', epaRegNo: '', activeIngredient: '', ratePerAcre: '', targetPest: '', reiHours: null as number | null, sensitiveAreasChecked: false })
+onMounted(() => {
+  try { Object.assign(details, JSON.parse(localStorage.getItem('applicator') ?? '{}')) } catch { /* nothing saved */ }
+})
+watch(() => [details.applicatorName, details.licenseNo], () => {
+  try { localStorage.setItem('applicator', JSON.stringify({ applicatorName: details.applicatorName, licenseNo: details.licenseNo })) } catch { /* storage unavailable */ }
+})
 const products = ref(PRODUCTS.map(p => ({ ...p })))
 /** Fills the job form from a label the applicator has checked. */
 function useLabel(l: LabelReading) {
@@ -29,6 +38,8 @@ function useLabel(l: LabelReading) {
   if (l.windMinMph !== null) labelMin.value = l.windMinMph
   if (l.windMaxMph !== null) labelMax.value = l.windMaxMph
   if (l.bufferFt !== null) bufferM.value = Math.round(l.bufferFt * 0.3048)
+  if (l.epaRegNo) details.epaRegNo = l.epaRegNo
+  if (l.activeIngredients.length) details.activeIngredient = l.activeIngredients.join(', ')
 }
 const error = ref('')
 const pushState = ref('')
@@ -41,7 +52,17 @@ async function call(path: string, body: object) {
     else overrideReason.value = ''
   } catch { error.value = 'Could not reach the server.' }
 }
-const jobBody = (): Job => ({ ...job, labelMinWindMph: labelMin.value ?? undefined, labelMaxWindMph: labelMax.value ?? undefined })
+const jobBody = (): Job => ({
+  ...job, labelMinWindMph: labelMin.value ?? undefined, labelMaxWindMph: labelMax.value ?? undefined,
+  applicatorName: details.applicatorName || undefined, licenseNo: details.licenseNo || undefined, epaRegNo: details.epaRegNo || undefined,
+  activeIngredient: details.activeIngredient || undefined, ratePerAcre: details.ratePerAcre || undefined, targetPest: details.targetPest || undefined,
+  reiHours: details.reiHours ?? undefined, sensitiveAreasChecked: details.sensitiveAreasChecked,
+})
+const held = ref('')
+async function holdOff() {
+  await call('/api/sessions', { blockId: blockId.value, job: jobBody(), phase: 'not-sprayed', holdReason: holdReason.value || undefined })
+  if (!error.value) { held.value = `Logged at ${snap.value ? fmtTime(snap.value.nowMs) : 'now'}: not spraying ${block.value?.name ?? ''}.`; holdReason.value = '' }
+}
 const create = (phase: 'waiting' | 'spraying') => call('/api/sessions', { blockId: blockId.value, job: jobBody(), phase, overrideReason: overrideReason.value || undefined })
 const start = () => call(`/api/sessions/${session.value!.id}/start`, { overrideReason: overrideReason.value || undefined })
 const finish = () => call(`/api/sessions/${session.value!.id}/finish`, {})
@@ -131,11 +152,33 @@ async function enablePush() {
           <label>Label minimum wind, mph<input v-model.number="labelMin" type="number" placeholder="3"></label>
           <label>Label maximum wind, mph<input v-model.number="labelMax" type="number" placeholder="10"></label>
         </div>
+        <details class="more">
+          <summary>Details for the spray record</summary>
+          <div class="row">
+            <label>Applicator<input v-model="details.applicatorName" autocomplete="name"></label>
+            <label>License or certificate no.<input v-model="details.licenseNo"></label>
+          </div>
+          <div class="row">
+            <label>EPA Reg. No.<input v-model="details.epaRegNo"></label>
+            <label>Active ingredient<input v-model="details.activeIngredient"></label>
+          </div>
+          <div class="row">
+            <label>Rate per acre<input v-model="details.ratePerAcre" placeholder="e.g. 12 fl oz"></label>
+            <label>Target pest<input v-model="details.targetPest"></label>
+          </div>
+          <label>Re-entry interval, hours<input v-model.number="details.reiHours" type="number" min="0"></label>
+          <label class="check"><input v-model="details.sensitiveAreasChecked" type="checkbox"> I checked downwind for schools, homes, workers, water and sensitive crops</label>
+        </details>
         <label v-if="ev?.status === 'STOP'">Reason for spraying during a Stop (goes in the record)
           <input v-model="overrideReason">
         </label>
         <button class="btn" :disabled="!ev" @click="create('spraying')">Start spraying</button>
         <button v-if="ev && ev.status !== 'GO'" class="btn secondary" @click="create('waiting')">Alert me when it is safe</button>
+        <label style="margin-top:14px">Not spraying this block now? Log it, with a reason if you like
+          <input v-model="holdReason" placeholder="e.g. inversion at dawn, waiting for the window">
+        </label>
+        <button class="btn secondary" style="margin-top:0" :disabled="!ev" @click="holdOff">Log that I am not spraying</button>
+        <div v-if="held" class="muted" role="status">{{ held }} <NuxtLink to="/log">See the spray log</NuxtLink></div>
       </template>
 
       <template v-else>

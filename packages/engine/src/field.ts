@@ -56,3 +56,10 @@ export function randomPointIn(poly: Pt[], rand: () => number): Pt {
   }
   return { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 }
 }
+
+/** Area of a field in acres, from its outline in local metres. */
+export function areaAcres(poly: Pt[]): number {
+  let twice = 0
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) twice += poly[j]!.x * poly[i]!.y - poly[i]!.x * poly[j]!.y
+  return Math.round((Math.abs(twice) / 2 / 4046.86) * 10) / 10
+}

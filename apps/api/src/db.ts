@@ -37,6 +37,14 @@ export const upsertSession = (sql: Sql, s: SessionState) => sql`
   values (${s.id}, ${s.blockId}, ${s.phase}, ${iso(s.startedMs)}, ${s.finishedMs ? iso(s.finishedMs) : null}, ${s.overrideReason ?? null}, ${JSON.stringify(s)}::jsonb)
   on conflict (id) do update set phase = excluded.phase, finished_at = excluded.finished_at, override_reason = excluded.override_reason, state = excluded.state`
 
+/** Per job: the worst status seen while it ran, how many evaluations were logged, and how many alerts went out. */
+export const sessionStats = (sql: Sql) => sql`
+  select e.session_id,
+         max(case e.status when 'STOP' then 2 when 'CAUTION' then 1 else 0 end) as worst,
+         count(*)::int as evaluations,
+         (select count(*)::int from alerts a where a.session_id = e.session_id) as alerts
+  from evaluations e where e.session_id is not null group by e.session_id`
+
 export const sessionRows = (sql: Sql, limit: number) => sql`select state from sessions order by started_at desc limit ${limit}`
 export const sessionById = async (sql: Sql, id: string) => (await sql`select state from sessions where id = ${id}`)[0]?.state as SessionState | undefined
 

@@ -4,6 +4,7 @@
       <NuxtLink to="/" class="brand">Stillair</NuxtLink>
       <NuxtLink to="/">Applicator</NuxtLink>
       <NuxtLink to="/dashboard">Dashboard</NuxtLink>
+      <NuxtLink to="/log">Spray log</NuxtLink>
       <NuxtLink to="/sources">Sources</NuxtLink>
     </nav>
     <NuxtPage />

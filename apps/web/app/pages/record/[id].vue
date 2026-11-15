@@ -27,6 +27,36 @@ const print = () => window.print()
       </section>
 
       <section class="card">
+        <h2>Application details</h2>
+        <div class="facts">
+          <div><span>Outcome</span>{{ record.session.outcome === 'not-sprayed' ? 'Did not spray' : 'Sprayed' }}</div>
+          <div><span>Applicator</span>{{ record.session.job.applicatorName || 'Not recorded' }}</div>
+          <div><span>License or certificate no.</span>{{ record.session.job.licenseNo || 'Not recorded' }}</div>
+          <div><span>EPA Reg. No.</span>{{ record.session.job.epaRegNo || 'Not recorded' }}</div>
+          <div><span>Active ingredient</span>{{ record.session.job.activeIngredient || 'Not recorded' }}</div>
+          <div><span>Rate per acre</span>{{ record.session.job.ratePerAcre || 'Not recorded' }}</div>
+          <div><span>Target pest</span>{{ record.session.job.targetPest || 'Not recorded' }}</div>
+          <div><span>Re-entry interval</span>{{ record.session.job.reiHours != null ? record.session.job.reiHours + ' hours' : 'Not recorded' }}</div>
+          <div><span>Downwind sensitive areas checked</span>{{ record.session.job.sensitiveAreasChecked ? 'Yes' : 'Not recorded' }}</div>
+        </div>
+        <div v-if="record.session.holdReason"><strong>Reason for not spraying:</strong> {{ record.session.holdReason }}</div>
+      </section>
+
+      <section v-if="record.session.startConditions" class="card">
+        <h2>Conditions at start and stop</h2>
+        <div class="grid2">
+          <div v-for="c in [{ label: record.session.outcome === 'not-sprayed' ? 'When they held off' : 'At start', v: record.session.startConditions }, { label: 'At stop', v: record.session.stopConditions }].filter(x => x.v)" :key="c.label">
+            <div class="label">{{ c.label }}, {{ fmtStamp(c.v.timeMs) }}</div>
+            <span class="chip" :class="c.v.status">{{ c.v.status }}</span>
+            <span class="muted"> ground station alone: {{ c.v.groundStatus }}</span>
+            <div v-for="l in c.v.levels" :key="l.heightFt">{{ l.heightFt }} ft: {{ l.tempF }}°F, wind {{ l.windMph }} mph from the {{ compass(l.windDirDeg) }}</div>
+            <div>Temperature difference {{ c.v.deltaF > 0 ? '+' : '' }}{{ c.v.deltaF }}°F ({{ c.v.deltaF > 0 ? 'inversion' : 'no inversion' }}), Richardson number {{ c.v.ri }}</div>
+            <div v-if="c.v.reasons.length" class="muted">{{ c.v.reasons.join(' ') }}</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
         <h2>Status changes</h2>
         <div v-for="e in changes" :key="e.id" class="trigger plain">
           <span class="num">{{ fmtStamp(e.time) }}</span> <span class="chip" :class="e.status">{{ e.status }}</span>

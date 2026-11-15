@@ -2,7 +2,7 @@ import { DurableObject } from 'cloudflare:workers'
 import {
   BLOCKS, RANCH, alertText, alertsFor, applyAlert, applyHold, evaluate, forecastReadings, groundFromAnchor, interpolate, inversionLikely,
   mulberry32, nextSafeWindow, postWatchMs, scenarioById, step, virtualTower,
-  type Anchor, type BlockModel, type Demo, type Evaluation, type GroundObs, type Hysteresis, type Job, type Mode, type Reading,
+  ends, type Anchor, type BlockModel, type Conditions, type Demo, type Evaluation, type GroundObs, type Hysteresis, type Job, type Mode, type Reading,
   type SafeWindow, type SensitiveSite, type SessionState, type Snapshot, type SourceInfo,
 } from '@drift/engine'
 import { sendAlert } from './alerter'
@@ -100,6 +100,16 @@ export class RanchDO extends DurableObject<Env> {
       return this.s.anchors.length ? groundFromAnchor(interpolate(this.s.anchors, now), RANCH.groundStation) : null
     }
     return this.s.ground.filter(g => g.timeMs <= now).pop() ?? this.s.ground[0] ?? null
+  }
+
+  /** The block's conditions right now, for the spray record. */
+  private conditions(blockId: string): Conditions | undefined {
+    const bs = this.s.blocks[blockId]
+    const ev = bs?.evaluation
+    const reading = bs?.history[bs.history.length - 1]
+    if (!ev || !reading) return undefined
+    const { lo, hi } = ends(reading)
+    return { timeMs: this.now(), status: ev.status, groundStatus: ev.groundOnly.status, deltaF: ev.deltaF, ri: ev.ri, levels: [lo, hi], ground: this.groundNow(this.now()), reasons: ev.triggers.map(t => t.text) }
   }
 
   private openSession = (blockId: string) => this.s.sessions.find(x => x.blockId === blockId && x.phase !== 'closed')
@@ -282,14 +292,24 @@ export class RanchDO extends DurableObject<Env> {
     return this.snapshot()
   }
 
-  async createSession(i: { blockId: string; job: Job; phase: 'waiting' | 'spraying'; overrideReason?: string }): Promise<{ session?: SessionState; error?: string }> {
+  async createSession(i: { blockId: string; job: Job; phase: 'waiting' | 'spraying' | 'not-sprayed'; overrideReason?: string; holdReason?: string }): Promise<{ session?: SessionState; error?: string }> {
     const status = this.s.blocks[i.blockId]?.evaluation?.status
     if (!status) return { error: 'No reading for that block yet.' }
+    // A decision to hold off is a record in its own right: what the conditions were and why they did not spray.
+    if (i.phase === 'not-sprayed') {
+      const held: SessionState = {
+        id: crypto.randomUUID(), blockId: i.blockId, phase: 'closed', job: i.job, interrupted: false, headsUpSent: false,
+        startedMs: this.now(), finishedMs: this.now(), outcome: 'not-sprayed', holdReason: i.holdReason?.trim() || undefined, startConditions: this.conditions(i.blockId),
+      }
+      this.s.sessions.push(held)
+      return this.commit(held)
+    }
     if (this.openSession(i.blockId)) return { error: 'That block already has an open session.' }
     if (i.phase === 'spraying' && status === 'STOP' && !i.overrideReason?.trim()) return { error: 'Status is STOP. Enter a reason to override.' }
     const session: SessionState = {
       id: crypto.randomUUID(), blockId: i.blockId, phase: i.phase, job: i.job, interrupted: i.phase === 'spraying' && status === 'STOP',
       headsUpSent: false, startedMs: this.now(), overrideReason: i.overrideReason?.trim() || undefined,
+      ...(i.phase === 'spraying' ? { outcome: 'sprayed' as const, startConditions: this.conditions(i.blockId) } : {}),
     }
     this.s.sessions.push(session)
     return this.commit(session)
@@ -301,6 +321,8 @@ export class RanchDO extends DurableObject<Env> {
     const status = this.s.blocks[session.blockId].evaluation?.status
     if (status === 'STOP' && !overrideReason?.trim()) return { error: 'Status is STOP. Enter a reason to override.' }
     session.phase = 'spraying'
+    session.outcome = 'sprayed'
+    session.startConditions = this.conditions(session.blockId)
     session.startedMs = this.now()
     session.interrupted = status === 'STOP'
     session.overrideReason = overrideReason?.trim() || undefined
@@ -310,8 +332,12 @@ export class RanchDO extends DurableObject<Env> {
   async finishSession(id: string): Promise<{ session?: SessionState; error?: string }> {
     const session = this.s.sessions.find(x => x.id === id)
     if (!session || session.phase === 'closed') return { error: 'No open session with that id.' }
-    if (session.phase === 'waiting') session.phase = 'closed'
-    else { session.phase = 'post-watch'; session.finishedMs = this.now() }
+    if (session.phase === 'waiting') {
+      // They asked to be told when it was safe, then gave up waiting: logged as not sprayed.
+      session.phase = 'closed'; session.outcome = 'not-sprayed'; session.finishedMs = this.now(); session.startConditions ??= this.conditions(session.blockId)
+    } else if (session.phase === 'spraying') {
+      session.phase = 'post-watch'; session.finishedMs = this.now(); session.stopConditions = this.conditions(session.blockId)
+    }
     return this.commit(session)
   }
 

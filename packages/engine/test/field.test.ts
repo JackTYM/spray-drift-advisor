@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BLOCKS, bounds, localOutline, mulberry32, pointInPolygon, randomPointIn, rowSpans, squareOutline, toLngLat, toLocal } from '../src'
+import { BLOCKS, areaAcres, bounds, localOutline, mulberry32, pointInPolygon, randomPointIn, rowSpans, squareOutline, toLngLat, toLocal } from '../src'
 
 describe('field geometry', () => {
   const sq = squareOutline(100)
@@ -16,6 +16,9 @@ describe('field geometry', () => {
     const spans = rowSpans(l, 20, 0)
     expect(spans.find(r => r.y === 90)!.x1).toBe(60)
     expect(spans.find(r => r.y === 30)!.x1).toBe(100)
+  })
+  it('measures a field in acres', () => {
+    expect(areaAcres(squareOutline(100))).toBe(9.9)
   })
   it('picks random points inside the field', () => {
     const rand = mulberry32(3)

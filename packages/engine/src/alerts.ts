@@ -1,4 +1,4 @@
-import type { Evaluation, Job, Status } from './types'
+import type { Conditions, Evaluation, Job, Status } from './types'
 
 export type AlertKind = 'stop' | 'heads-up' | 'all-clear'
 export type Phase = 'waiting' | 'spraying' | 'post-watch' | 'closed'
@@ -12,6 +12,12 @@ export interface SessionState {
   startedMs: number
   finishedMs?: number
   overrideReason?: string
+  /** Whether spray was applied. A decision to hold off is logged too. */
+  outcome?: 'sprayed' | 'not-sprayed'
+  /** Why the applicator held off, in their words. */
+  holdReason?: string
+  startConditions?: Conditions
+  stopConditions?: Conditions
 }
 
 export const postWatchMs = (job: Job): number => (job.volatility === 'high' ? 4 * 3_600_000 : 30 * 60_000)
