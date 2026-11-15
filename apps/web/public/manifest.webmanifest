@@ -1,0 +1,9 @@
+{
+  "name": "Spray Drift Advisor",
+  "short_name": "Drift Advisor",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1c2530",
+  "theme_color": "#1c2530",
+  "icons": []
+}
