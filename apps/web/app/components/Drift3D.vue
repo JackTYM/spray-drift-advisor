@@ -155,6 +155,7 @@ function resetAir() {
 onMounted(() => {
   const m = model.value
   try {
+    maplibregl.setWorkerUrl('/maplibre-gl-worker.mjs')
     map = new maplibregl.Map({
       container: el.value!, center: [m.lon, m.lat], zoom: 15.3, pitch: 58, bearing: -35, maxPitch: 85, attributionControl: { compact: true },
       style: {
