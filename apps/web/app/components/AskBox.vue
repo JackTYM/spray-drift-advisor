@@ -1,9 +1,10 @@
 <script setup lang="ts">
+const props = defineProps<{ context?: string }>()
 const api = useRuntimeConfig().public.apiBase as string
 const question = ref('')
 const busy = ref(false)
 const turns = ref<{ q: string; a: string; failed?: boolean }[]>([])
-const examples = ['Can I spray Block 3 right now?', 'Why did it stop?', '¿Cuándo puedo empezar?']
+const examples = ['What would it cost me to spray now?', 'When is the best time to spray?', '¿Por qué no puedo fumigar?']
 
 async function send(text = question.value) {
   const q = text.trim()
@@ -11,7 +12,7 @@ async function send(text = question.value) {
   busy.value = true
   question.value = ''
   try {
-    const r = await $fetch<{ answer?: string; error?: string }>(`${api}/api/ask`, { method: 'POST', body: { question: q } })
+    const r = await $fetch<{ answer?: string; error?: string }>(`${api}/api/ask`, { method: 'POST', body: { question: q, context: props.context || undefined } })
     turns.value.push({ q, a: r.answer ?? r.error ?? 'No answer came back.', failed: !r.answer })
   } catch (err: any) {
     turns.value.push({ q, a: err?.data?.error ?? 'The assistant could not be reached. The status above is unaffected.', failed: true })

@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import Anthropic from '@anthropic-ai/sdk'
-import { BLOCKS, RANCH, areaAcres, compassOf, ends, localOutline, type Conditions, type SessionState, parseReading, readingsFromCsv, summarize, type CsvMapping, type Snapshot } from '@drift/engine'
+import { BLOCKS, EXAMPLE_COST_PER_ACRE, RANCH, areaAcres, compassOf, ends, localOutline, sprayEconomics, type Conditions, type SessionState, parseReading, readingsFromCsv, summarize, type CsvMapping, type Snapshot } from '@drift/engine'
 import { ask, readLabel } from './ai'
 import { alertPhones, sendLinq } from './alerter'
 import { sessionStats, alertRows, db, insertRecorded, latestBacktest, logRows, saveSubscription, sessionById, sessionRows } from './db'
@@ -162,6 +162,14 @@ async function snapshotText(env: Env): Promise<string> {
       const { lo, hi } = ends(b.reading)
       lines.push(`  ${lo.heightFt} ft: ${lo.tempF}°F, wind ${lo.windMph} mph from the ${compassOf(lo.windDirDeg)}. ${hi.heightFt} ft: ${hi.tempF}°F, wind ${hi.windMph} mph from the ${compassOf(hi.windDirDeg)}. Temperature difference ${ev.deltaF > 0 ? '+' : ''}${ev.deltaF}°F. Richardson number ${ev.ri}.`)
     }
+    const model = BLOCKS.find(x => x.id === b.id)
+    if (b.reading && model) {
+      // A small run of the drift model, so the assistant can say what spraying now would cost.
+      const field = localOutline(model)
+      const acres = areaAcres(field)
+      const e = sprayEconomics(b.reading, 'medium', acres, EXAMPLE_COST_PER_ACRE, { field, n: 40, steps: 250 })
+      lines.push(`  Drift model estimate if sprayed now (${acres} acres, medium spray quality, example cost of ${EXAMPLE_COST_PER_ACRE} dollars per acre): about ${Math.round(e.offTargetPct)}% of the spray would leave the block, about ${e.wastedUsd} dollars of a ${e.costUsd} dollar application; ${e.extraPct}% more product would be needed to put the full dose on the trees.`)
+    }
     lines.push(`  Next safe window: ${ev?.status === 'GO' ? 'open now' : b.window ? `${at(b.window.startMs)} to ${at(b.window.endMs)}` : 'none in the next 36 hours'}.`)
     const forecast = await stub.forecast(b.id)
     if (forecast.length) lines.push(`  Forecast: ${forecast.slice(0, 24).map(f => `${at(f.timeMs)} ${f.status}`).join(', ')}.`)
@@ -183,12 +191,12 @@ function aiError(err: unknown): string {
 }
 
 app.post('/api/ask', async c => {
-  const body = await c.req.json<{ question?: string }>().catch(() => null)
+  const body = await c.req.json<{ question?: string; context?: string }>().catch(() => null)
   const question = body?.question?.trim()
   if (!question) return c.json({ error: 'question is required' }, 400)
   if (question.length > 600) return c.json({ error: 'Keep the question under 600 characters.' }, 400)
   try {
-    return c.json({ answer: await ask(c.env, question, await snapshotText(c.env)) })
+    return c.json({ answer: await ask(c.env, question, await snapshotText(c.env), body?.context?.slice(0, 2000)) })
   } catch (err) {
     console.error('ask failed', err)
     return c.json({ error: aiError(err) }, 502)

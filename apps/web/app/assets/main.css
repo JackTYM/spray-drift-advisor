@@ -239,3 +239,24 @@ label.check input { width: 22px; height: 22px; min-height: 0; margin: 0; flex: n
   .topline .clock { margin-left: 0; }
   .backtest { grid-template-columns: 1fr; }
 }
+
+/* ---------- what-if and cost ---------- */
+.whatifbtn { font: 700 17px var(--display); letter-spacing: .03em; color: var(--warm); background: transparent; border: 2px solid var(--warm); border-radius: 4px; padding: 8px 16px; cursor: pointer; }
+.whatifbtn.on { background: var(--warm); color: #1d1206; }
+.whatif { background: var(--panel); border: 2px solid var(--warm); border-radius: 6px; padding: 14px 16px; margin-bottom: 14px; }
+.whatif-head { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; margin-bottom: 10px; }
+.whatif-head strong { font-family: var(--display); font-size: 22px; }
+.presets { display: flex; flex-wrap: wrap; gap: 8px; }
+.presets button { font: 600 15px var(--text); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 8px 14px; cursor: pointer; }
+.presets button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.sliders { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 22px; }
+.sliders label { font-size: 14px; color: var(--muted); }
+.sliders label b { color: var(--ink); }
+.sliders input[type=range] { width: 100%; min-height: 0; padding: 0; margin: 6px 0 0; border: 0; background: transparent; accent-color: var(--warm); }
+.costrow { display: grid; grid-template-columns: 1fr; gap: 10px; font-size: 14px; color: var(--muted); }
+.costrow .figure { display: block; color: var(--ink); font-size: 34px; }
+.costrow .figure.bad { color: #ff7864; }
+.cost .muted { margin: 10px 0 0; }
+.costinputs { margin-top: 12px; }
+.costinputs input, .costinputs select { min-height: 42px; padding: 8px 10px; margin: 4px 0 0; }
+.banner .where em { font-style: normal; background: rgba(0, 0, 0, .28); padding: 2px 8px; border-radius: 3px; margin-right: 8px; }

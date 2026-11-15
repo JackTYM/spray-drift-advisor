@@ -1,16 +1,27 @@
 <script setup lang="ts">
-import { BLOCKS, scenarioById } from '@drift/engine'
+import { BLOCKS, areaAcres, evaluate, localOutline, scenarioById, sprayEconomics, whatIfReading, type BlockSnapshot } from '@drift/engine'
 
 const { snap, api } = useRanch()
 const route = useRoute()
 const blockId = ref(String(route.query.block ?? 'block-3'))
-const block = computed(() => snap.value?.blocks.find(b => b.id === blockId.value) ?? null)
+const liveBlock = computed(() => snap.value?.blocks.find(b => b.id === blockId.value) ?? null)
+const whatIf = useWhatIf()
+/** In what-if mode the chosen conditions stand in for the live reading, run through the same rules. */
+const block = computed<BlockSnapshot | null>(() => {
+  const live = liveBlock.value
+  if (!live || !whatIf.on.value) return live
+  const reading = whatIfReading(live.id, whatIf.w.value, snap.value?.nowMs ?? Date.now())
+  const evaluation = evaluate({ history: [reading], nowMs: Date.parse(reading.time), sites: live.sites })
+  return { ...live, reading, evaluation, window: null }
+})
+/** Every block as the views should draw it: the selected one may be showing what-if conditions. */
+const blocks = computed(() => (snap.value?.blocks ?? []).map(b => (b.id === blockId.value && block.value ? block.value : b)))
 const ev = computed(() => block.value?.evaluation ?? null)
 const session = computed(() => snap.value?.sessions.find(s => s.blockId === blockId.value && s.phase !== 'closed') ?? null)
 const surroundings = useSurroundings(blockId)
 const bufferM = useBufferM()
 const facts = computed(() => downwindFacts(block.value, surroundings.value, bufferM.value))
-const droplet = computed(() => session.value?.job.droplet ?? 'fine')
+const droplet = computed(() => (whatIf.on.value ? whatIf.quality.value : session.value?.job.droplet ?? whatIf.quality.value))
 
 /** The one large view on the right, and the one piece of evidence under it. */
 const stage = ref<'3d' | 'side' | 'map'>('3d')
@@ -38,6 +49,21 @@ onMounted(async () => {
 onBeforeUnmount(() => clearInterval(timer))
 watch(blockId, refresh)
 
+const field = computed(() => localOutline(BLOCKS.find(b => b.id === blockId.value) ?? BLOCKS[0]!))
+const acres = computed(() => areaAcres(field.value))
+/** What spraying in these conditions would lose, from the drift model. */
+const econ = computed(() => (block.value?.reading ? sprayEconomics(block.value.reading, droplet.value, acres.value, whatIf.costPerAcre.value || 0, { field: field.value }) : null))
+/** What is on screen, in words, so the assistant answers about the same numbers the user sees. */
+const askContext = computed(() => {
+  const b = block.value, e = econ.value, v = b?.evaluation
+  if (!b || !v || !e) return ''
+  const lines = [
+    whatIf.on.value ? `The user is exploring a WHAT-IF scenario for ${b.name}, not live conditions: ${v.deltaF > 0 ? '+' : ''}${v.deltaF}°F between 5 ft and 30 ft, wind ${whatIf.w.value.lowWindMph} mph at 5 ft and ${whatIf.w.value.highWindMph} mph at 30 ft from the ${compass(whatIf.w.value.windFromDeg)}. Under those conditions the rules give ${v.status}. Reasons: ${v.triggers.map(t => t.text).join(' ') || 'none'}` : `The user is looking at ${b.name}.`,
+    `Drift model estimate for ${b.name} (${acres.value} acres, ${droplet.value} spray quality, $${whatIf.costPerAcre.value} per acre): ${e.offTargetPct}% of the spray would leave the block (${e.offLowPct}% near the ground, ${e.aloftPct}% aloft), about $${e.wastedUsd} of a $${e.costUsd} application, and it would take ${e.extraPct}% more product to put the full dose on the trees.`,
+    facts.value && !facts.value.calm ? `Spray would be carried toward the ${facts.value.dir}; ${facts.value.addresses.length} addresses lie within ${bufferM.value} m that way.` : '',
+  ]
+  return lines.filter(Boolean).join('\n')
+})
 const marks = computed(() => (snap.value?.demo.mode === 'scenario' ? scenarioById(snap.value.demo.scenarioId).marks : []))
 const jump = (min: number) => $fetch(`${api}/api/demo`, { method: 'POST', body: { seekMin: min } }).then(refresh)
 const blockName = computed(() => BLOCKS.find(b => b.id === blockId.value)?.name ?? '')
@@ -53,17 +79,20 @@ const mode = computed(() => ({ live: 'Live', scenario: 'Scripted night', replay:
           <span class="name">{{ b.name }}</span><span class="state">{{ b.evaluation?.status ?? 'WAIT' }}</span>
         </button>
       </div>
-      <div v-if="marks.length" class="jumps" style="margin:0">
+      <button class="whatifbtn" :class="{ on: whatIf.on.value }" :aria-pressed="whatIf.on.value" @click="whatIf.on.value = !whatIf.on.value">{{ whatIf.on.value ? 'Back to live conditions' : 'What if…' }}</button>
+      <div v-if="marks.length && !whatIf.on.value" class="jumps" style="margin:0">
         <span class="muted">Jump to</span>
         <button v-for="m in marks" :key="m.label" @click="jump(m.min)">{{ m.label }}</button>
       </div>
       <div class="muted clock">{{ mode }}, {{ snap ? fmtStamp(snap.nowMs) : '' }}</div>
     </div>
 
+    <WhatIfBar v-if="whatIf.on.value" />
+
     <div class="split">
       <aside class="decide">
-        <StatusBanner :evaluation="ev" :where="block ? `${block.name}, ${block.note.toLowerCase()}` : undefined" />
-        <div class="next">
+        <StatusBanner :evaluation="ev" :where="block ? `${whatIf.on.value ? 'What-if: ' : ''}${block.name}, ${block.note.toLowerCase()}` : undefined" />
+        <div v-if="!whatIf.on.value" class="next">
           <span class="muted">Next safe window</span>
           <strong v-if="ev?.status === 'GO'">Open now</strong>
           <strong v-else-if="block?.window">{{ fmtTime(block.window.startMs) }} to {{ fmtTime(block.window.endMs) }}</strong>
@@ -76,13 +105,18 @@ const mode = computed(() => ({ live: 'Live', scenario: 'Scripted night', replay:
         </section>
 
         <section>
+          <h2>{{ whatIf.on.value ? 'If you sprayed in these conditions' : 'If you sprayed now' }}</h2>
+          <SprayCost :econ="econ" :acres="acres" :status="ev?.status ?? null" />
+        </section>
+
+        <section v-if="!whatIf.on.value">
           <h2>Spray job</h2>
           <JobPanel :block-id="blockId" />
         </section>
 
         <section>
           <h2>Ask Stillair</h2>
-          <AskBox />
+          <AskBox :context="askContext" />
         </section>
       </aside>
 
@@ -96,11 +130,11 @@ const mode = computed(() => ({ live: 'Live', scenario: 'Scripted night', replay:
               <button :class="{ on: stage === 'map' }" @click="stage = 'map'">Map</button>
             </div>
           </div>
-          <Drift3D v-if="stage === '3d'" :blocks="snap?.blocks ?? []" :selected="blockId" :surroundings="surroundings" :droplet="droplet" />
+          <Drift3D v-if="stage === '3d'" :blocks="blocks" :selected="blockId" :surroundings="surroundings" :droplet="droplet" />
           <div v-else-if="stage === 'side'" class="sidestage">
             <TowerScene :reading="block?.reading ?? null" :delta-f="ev?.deltaF ?? 0" :ri="ev?.ri ?? 0" :droplet="droplet" :site="block?.sites[0] ?? null" />
           </div>
-          <BlockMap v-else :blocks="snap?.blocks ?? []" :selected="blockId" :surroundings="surroundings" @select="blockId = $event" />
+          <BlockMap v-else :blocks="blocks" :selected="blockId" :surroundings="surroundings" @select="blockId = $event" />
         </section>
 
         <section class="card">
@@ -109,6 +143,7 @@ const mode = computed(() => ({ live: 'Live', scenario: 'Scripted night', replay:
           </div>
 
           <div v-if="tab === 'timeline'">
+            <p v-if="whatIf.on.value" class="muted">The timeline shows what was actually measured and forecast, not the what-if conditions.</p>
             <Timeline :history="history.history" :forecast="history.forecast" />
           </div>
           <div v-else-if="tab === 'profile'" class="grid2">
@@ -116,7 +151,7 @@ const mode = computed(() => ({ live: 'Live', scenario: 'Scripted night', replay:
             <div><h2>Is the air mixing?</h2><MixingGauge :ri="ev?.ri ?? 0" /></div>
           </div>
           <Hodograph v-else-if="tab === 'wind'" :reading="block?.reading ?? null" />
-          <WindowRanking v-else-if="tab === 'hours'" :block-id="blockId" :forecast="history.forecast" :surroundings="surroundings" :droplet="droplet" />
+          <WindowRanking v-else-if="tab === 'hours'" :block-id="blockId" :forecast="history.forecast" :surroundings="surroundings" :droplet="droplet" :now="liveBlock?.reading ?? null" :cost-per-acre="whatIf.costPerAcre.value || 0" />
           <div v-else-if="tab === 'compare'">
             <CompareTable :block="block" :ground="snap?.ground ?? null" />
             <div v-if="backtest" class="backtest">
