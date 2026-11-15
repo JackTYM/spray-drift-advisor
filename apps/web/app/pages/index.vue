@@ -51,7 +51,7 @@ const hour = computed(() => {
 const hourEval = computed(() => (hour.value ? evaluate({ history: [hour.value.reading], nowMs: hour.value.timeMs, sites: plan.value?.sites ?? [] }) : null))
 const hourStatuses = computed(() => Object.fromEntries(fields.value.map(f => [f.id, plans.value[f.id]?.hours.find(h => h.timeMs === hour.value?.timeMs)?.status])))
 
-const stage = ref<'map' | '3d' | 'side'>('map')
+const stage = ref<'map' | '3d'>('map')
 const isBlock = computed(() => BLOCKS.some(b => b.id === field.value.id))
 /** The ranch's blocks as the 3D scene expects them, each showing its estimate for the previewed hour. */
 /** Every field as the 3D scene draws it. A field added by hand has no traced boundary, so it is drawn as a square of its acreage. */
@@ -87,7 +87,7 @@ const tabs = computed(() => allTabs.filter(t => advanced.value || !t.advanced))
 watch(advanced, on => { if (!on && allTabs.find(t => t.id === tab.value)?.advanced) tab.value = 'route' })
 const volatile = ref(false)
 /** The guided demo sets what the page shows at each step. */
-function demoGo(step: { fieldId?: string; pickedMs?: number | null; stage?: 'map' | '3d' | 'side'; tab?: string; advanced?: boolean }) {
+function demoGo(step: { fieldId?: string; pickedMs?: number | null; stage?: 'map' | '3d'; tab?: string; advanced?: boolean }) {
   if (step.fieldId && step.fieldId !== fieldId.value) fieldId.value = step.fieldId
   if (step.advanced !== undefined) advanced.value = step.advanced
   // After the field change has cleared the previewed hour.
@@ -249,16 +249,12 @@ const askContext = computed(() => {
             <div class="seg" role="group" aria-label="View">
               <button :class="{ on: stage === 'map' }" @click="stage = 'map'">Map</button>
               <button :class="{ on: stage === '3d' }" @click="stage = '3d'">3D at this hour</button>
-              <button :class="{ on: stage === 'side' }" @click="stage = 'side'">Side view</button>
             </div>
           </div>
           <PlanMap v-if="stage === 'map'" :fields="fields" :plan="plan" :selected="field.id" :statuses="hourStatuses" :adding="adding" @select="fieldId = $event" @add="add" />
-          <div v-else-if="stage === '3d'">
+          <div v-else>
             <Drift3D :key="field.id" :blocks="sceneBlocks" :models="sceneModels" :selected="field.id" :surroundings="surroundings" droplet="medium" />
             <p v-if="!isBlock" class="muted">This field's boundary has not been traced, so it is drawn as a square of {{ jobFor(field.id).acres }} acres. Buildings and addresses are not loaded for this area.</p>
-          </div>
-          <div v-else class="sidestage">
-            <TowerScene :reading="hour?.reading ?? null" :delta-f="hourEval?.deltaF ?? 0" :ri="hourEval?.ri ?? 0" droplet="medium" :site="plan?.sites[0] ?? null" />
           </div>
           <p v-if="stage !== 'map'" class="badgeline"><SourceBadge kind="estimated" detail="drift model, compares conditions, not a deposition forecast" /></p>
         </section>

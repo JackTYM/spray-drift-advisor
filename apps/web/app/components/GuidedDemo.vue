@@ -3,7 +3,7 @@ import type { PlanHour } from '@drift/engine'
 
 const props = defineProps<{ hours: PlanHour[] }>()
 const emit = defineEmits<{
-  go: [step: { fieldId?: string; pickedMs?: number | null; stage?: 'map' | '3d' | 'side'; tab?: string; advanced?: boolean }]
+  go: [step: { fieldId?: string; pickedMs?: number | null; stage?: 'map' | '3d'; tab?: string; advanced?: boolean }]
 }>()
 
 const open = ref(false)
@@ -36,7 +36,7 @@ const steps = computed(() => {
     {
       title: 'An hour that looks fine but is not',
       text: 'Tonight the wind is light and a single station would say go. The air above is warmer than the air at the ground, which holds spray low and carries it.',
-      go: { pickedMs: inversionMs(), stage: 'side' as const },
+      go: { pickedMs: inversionMs(), stage: '3d' as const },
     },
     {
       title: 'Wind toward the neighbours',
