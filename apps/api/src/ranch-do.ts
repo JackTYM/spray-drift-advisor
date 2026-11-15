@@ -13,6 +13,8 @@ import { blockSites, historyAnchors, historyGround, liveAnchors, liveGround } fr
 const CAP = 100
 const LIVE_TICK_MS = 10_000
 const DEMO_TICK_MS = 2_000
+/** After a posted or hand-entered reading, the virtual tower leaves that block alone this long. */
+const EXTERNAL_HOLD_MS = 5 * 60_000
 const clock = new Intl.DateTimeFormat('en-US', { timeZone: RANCH.timeZone, hour: 'numeric', minute: '2-digit' })
 const fmt = (ms: number) => clock.format(new Date(ms))
 
@@ -133,7 +135,7 @@ export class RanchDO extends DurableObject<Env> {
     if (this.s.anchors.length) {
       for (const b of BLOCKS) {
         const bs = this.s.blocks[b.id]
-        const external = d.mode === 'live' && Date.now() - bs.externalMs < 120_000
+        const external = d.mode === 'live' && Date.now() - bs.externalMs < EXTERNAL_HOLD_MS
         const drop = sc?.dropout && sc.dropout.blockId === b.id && now >= sc.startMs + sc.dropout.fromMin * 60_000 && now < sc.startMs + sc.dropout.toMin * 60_000
         if (external) continue
         const reading = drop ? undefined : virtualTower(b, interpolate(this.s.anchors, now), this.rand, true, 'modelled', source)
@@ -150,6 +152,8 @@ export class RanchDO extends DurableObject<Env> {
   private async process(block: BlockModel, now: number, reading: Reading | undefined) {
     const bs = this.s.blocks[block.id]
     if (reading) {
+      // A different sensor is not a continuation of the old one: do not smooth across the switch.
+      if (bs.history.length && bs.history[bs.history.length - 1].source !== reading.source) bs.history = []
       bs.history.push(reading)
       if (bs.history.length > CAP) bs.history.shift()
     }

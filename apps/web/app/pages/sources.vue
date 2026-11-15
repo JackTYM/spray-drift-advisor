@@ -8,6 +8,26 @@ const mapping = ref(JSON.stringify({
     { heightFt: 30, temp: 't_high_c', tempUnit: 'C', wind: 'ws_high', windUnit: 'mps', dir: 'wd_high' },
   ],
 }, null, 2))
+const manual = reactive({ blockId: 'block-3', lowTemp: 54, lowWind: 3.5, lowDir: 280, highTemp: 61, highWind: 5, highDir: 265 })
+const manualMsg = ref('')
+function preset(kind: 'inversion' | 'mixed') {
+  Object.assign(manual, kind === 'inversion'
+    ? { lowTemp: 54, lowWind: 3.5, lowDir: 280, highTemp: 61, highWind: 5, highDir: 265 }
+    : { lowTemp: 62, lowWind: 5, lowDir: 200, highTemp: 61, highWind: 7, highDir: 200 })
+}
+async function sendManual() {
+  manualMsg.value = ''
+  try {
+    await $fetch(`${api}/api/readings`, { method: 'POST', body: {
+      source: 'manual-entry', kind: 'measured', blockId: manual.blockId, time: new Date().toISOString(),
+      levels: [
+        { heightFt: 5, tempF: manual.lowTemp, windMph: manual.lowWind, windDirDeg: manual.lowDir },
+        { heightFt: 30, tempF: manual.highTemp, windMph: manual.highWind, windDirDeg: manual.highDir },
+      ],
+    } })
+    manualMsg.value = 'Reading sent. The block uses it for 5 minutes, then returns to its feed.'
+  } catch { manualMsg.value = 'The reading was rejected. Check the numbers. Manual entry needs Live mode.' }
+}
 const result = ref<any>(null)
 const error = ref('')
 
@@ -36,6 +56,28 @@ const example = computed(() => `curl -X POST ${api}/api/readings -H 'content-typ
         </table>
       </div>
       <p class="muted">Every feed is converted to one common reading format, with heights carried in the data. A new sensor or network needs only a new adapter.</p>
+    </section>
+
+    <section class="card">
+      <div class="label">Enter a reading by hand</div>
+      <p class="muted">For a handheld reading or a what-if check. Works in Live mode: the chosen block switches to your numbers for 5 minutes, and any open spray job on it is alerted if the status changes.</p>
+      <div class="row">
+        <select v-model="manual.blockId" aria-label="Block"><option value="block-1">Block 1</option><option value="block-2">Block 2</option><option value="block-3">Block 3</option></select>
+        <button class="btn secondary" style="margin:0 0 8px" @click="preset('inversion')">Fill: inversion</button>
+        <button class="btn secondary" style="margin:0 0 8px" @click="preset('mixed')">Fill: mixed air</button>
+      </div>
+      <div class="row">
+        <label>5 ft temp °F<input v-model.number="manual.lowTemp" type="number" step="0.1"></label>
+        <label>5 ft wind mph<input v-model.number="manual.lowWind" type="number" step="0.1"></label>
+        <label>5 ft wind from °<input v-model.number="manual.lowDir" type="number"></label>
+      </div>
+      <div class="row">
+        <label>30 ft temp °F<input v-model.number="manual.highTemp" type="number" step="0.1"></label>
+        <label>30 ft wind mph<input v-model.number="manual.highWind" type="number" step="0.1"></label>
+        <label>30 ft wind from °<input v-model.number="manual.highDir" type="number"></label>
+      </div>
+      <button class="btn" style="max-width:260px" @click="sendManual">Send reading</button>
+      <div class="muted" role="status">{{ manualMsg }}</div>
     </section>
 
     <div class="grid2">

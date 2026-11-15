@@ -38,3 +38,4 @@ canvas.scene { width: 100%; display: block; border-radius: 8px; background: #0f1
 .gauge .needle { position: absolute; top: 0; width: 4px; height: 100%; background: var(--ink); outline: 1px solid #fff; transition: left .4s; }
 @media print { .nav, .btn, .disclaimer { display: none; } body { background: #fff; } }
 .level { font-size: 15px; font-variant-numeric: tabular-nums; padding: 2px 4px; }
+label { font-size: 12px; color: var(--muted); }
