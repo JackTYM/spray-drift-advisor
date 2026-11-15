@@ -107,7 +107,8 @@ export function usePlans() {
     for (const h of hours) {
       if (h.timeMs < Date.now() - 15 * 60_000) continue
       const covered = hours.filter(x => x.timeMs + 3_600_000 > h.timeMs && x.timeMs < h.timeMs + job)
-      if (!covered.length || covered.some(x => x.status === 'STOP')) continue
+      // Never offer an hour with a hard stop, or one whose wind blows toward buildings or another sensitive site.
+      if (!covered.length || covered.some(x => x.status === 'STOP' || x.margins.other < 1)) continue
       const confidence = jobConfidence(hours, h.timeMs, minutesFor(id))
       if (confidence > (best?.confidence ?? 0.09)) {
         const weakest = [...covered].sort((a, b) => a.confidence - b.confidence)[0]!
