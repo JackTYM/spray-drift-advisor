@@ -46,7 +46,8 @@ const spans = computed(() => {
   const towardNorth = facts.value && !facts.value.calm ? Math.cos((facts.value.towardDeg * Math.PI) / 180) > 0 : false
   return towardNorth ? rows : [...rows].reverse()
 })
-const facts = computed(() => downwindFacts(snap.value, props.surroundings))
+const bufferM = useBufferM()
+const facts = computed(() => downwindFacts(snap.value, props.surroundings, bufferM.value))
 
 const rect = (lat0: number, lon0: number, x0: number, y0: number, x1: number, y1: number) =>
   [[toLngLat(lat0, lon0, x0, y0), toLngLat(lat0, lon0, x1, y0), toLngLat(lat0, lon0, x1, y1), toLngLat(lat0, lon0, x0, y1), toLngLat(lat0, lon0, x0, y0)]]
@@ -95,7 +96,7 @@ function drawStatic() {
   const outlines3d = buildings.value
   const mine = buildings.value
   const wind = facts.value && !facts.value.calm ? facts.value.windFromDeg : null
-  const hit = new Set(wind === null ? [] : downwindOf(mine, wind, BUFFER_M))
+  const hit = new Set(wind === null ? [] : downwindOf(mine, wind, bufferM.value))
   if (outlines3d.length) {
     setData('addresses', collection(outlines3d.map(o => feature([o.ring], { color: hit.has(o) ? '#f2994a' : '#dfe6ee' }))))
   } else {

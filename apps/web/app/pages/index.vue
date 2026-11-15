@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { BLOCKS, PRODUCTS, type Job } from '@drift/engine'
+import type { LabelReading } from '~/components/LabelReader.vue'
 
 const { snap, api } = useRanch()
 const route = useRoute()
@@ -7,14 +8,28 @@ const blockId = ref(String(route.query.block ?? 'block-3'))
 const block = computed(() => snap.value?.blocks.find(b => b.id === blockId.value) ?? null)
 const ev = computed(() => block.value?.evaluation ?? null)
 const surroundings = useSurroundings(blockId)
-const facts = computed(() => downwindFacts(block.value, surroundings.value))
+const bufferM = useBufferM()
+const facts = computed(() => downwindFacts(block.value, surroundings.value, bufferM.value))
 const session = computed(() => snap.value?.sessions.find(s => s.blockId === blockId.value && s.phase !== 'closed') ?? null)
 
 const job = reactive<Job>({ product: PRODUCTS[0].name, volatility: PRODUCTS[0].volatility, droplet: 'medium' })
-watch(() => job.product, p => { job.volatility = PRODUCTS.find(x => x.name === p)?.volatility ?? 'low' })
+watch(() => job.product, p => { job.volatility = products.value.find(x => x.name === p)?.volatility ?? job.volatility })
 const labelMin = ref<number | null>(null)
 const labelMax = ref<number | null>(null)
 const overrideReason = ref('')
+const products = ref(PRODUCTS.map(p => ({ ...p })))
+/** Fills the job form from a label the applicator has checked. */
+function useLabel(l: LabelReading) {
+  if (l.productName) {
+    if (!products.value.some(p => p.name === l.productName)) products.value.push({ name: l.productName, volatility: l.volatility ?? 'low' })
+    job.product = l.productName
+  }
+  if (l.volatility) job.volatility = l.volatility
+  if (l.dropletSize) job.droplet = l.dropletSize
+  if (l.windMinMph !== null) labelMin.value = l.windMinMph
+  if (l.windMaxMph !== null) labelMax.value = l.windMaxMph
+  if (l.bufferFt !== null) bufferM.value = Math.round(l.bufferFt * 0.3048)
+}
 const error = ref('')
 const pushState = ref('')
 
@@ -82,9 +97,9 @@ async function enablePush() {
       <template v-if="facts.calm">Wind at 5 ft is near calm, so drift has no clear direction.</template>
       <template v-else>
         Spray would be carried toward the <strong>{{ facts.dir }}</strong>.
-        <strong>{{ facts.addresses.length }}</strong> {{ facts.addresses.length === 1 ? 'address' : 'addresses' }} within {{ BUFFER_M }} m that way<template v-if="facts.crop">, over land mapped as {{ facts.crop.toLowerCase() }}</template>.
+        <strong>{{ facts.addresses.length }}</strong> {{ facts.addresses.length === 1 ? 'address' : 'addresses' }} within {{ bufferM }} m that way<template v-if="facts.crop">, over land mapped as {{ facts.crop.toLowerCase() }}</template>.
       </template>
-      <div class="muted" style="margin-top:6px">{{ BUFFER_M }} m is an example buffer. <NuxtLink to="/dashboard">See the map</NuxtLink></div>
+      <div class="muted" style="margin-top:6px">{{ bufferM === BUFFER_M ? `${BUFFER_M} m is an example buffer; read the label to use the real one.` : `${bufferM} m is the buffer read from the label.` }} <NuxtLink to="/dashboard">See the map</NuxtLink></div>
     </section>
 
     <div class="pair sect" style="padding:0">
@@ -107,7 +122,8 @@ async function enablePush() {
     <section class="sect">
       <template v-if="!session">
         <h2>Spray job</h2>
-        <select v-model="job.product" aria-label="Product"><option v-for="p in PRODUCTS" :key="p.name">{{ p.name }}</option></select>
+        <LabelReader @use="useLabel" />
+        <select v-model="job.product" aria-label="Product"><option v-for="p in products" :key="p.name">{{ p.name }}</option></select>
         <select v-model="job.droplet" aria-label="Droplet size">
           <option value="fine">Fine droplets</option><option value="medium">Medium droplets</option><option value="coarse">Coarse droplets</option>
         </select>
@@ -138,6 +154,11 @@ async function enablePush() {
         <p><NuxtLink :to="`/record/${session.id}`">View the job record</NuxtLink></p>
       </template>
       <div v-if="error" class="error" role="alert">{{ error }}</div>
+    </section>
+
+    <section class="sect">
+      <h2>Ask Stillair</h2>
+      <AskBox />
     </section>
 
     <div class="pad">

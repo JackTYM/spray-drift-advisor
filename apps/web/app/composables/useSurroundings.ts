@@ -1,7 +1,9 @@
 import { downwindOf, compassOf, ends, type BlockSnapshot, type Surroundings } from '@drift/engine'
 
-/** Example buffer. The real distance comes from the product label. */
+/** Example buffer, used until a label supplies the real one. */
 export const BUFFER_M = 300
+/** Buffer distance in metres: the label's when one has been read, otherwise the example. */
+export const useBufferM = () => useState('bufferM', () => BUFFER_M)
 
 /** Static facts about what lies around a block, fetched once per block. */
 export function useSurroundings(blockId: Ref<string>) {
@@ -16,7 +18,7 @@ export function useSurroundings(blockId: Ref<string>) {
 }
 
 /** What the wind at the lowest level would carry spray toward. */
-export function downwindFacts(block: BlockSnapshot | null, s: Surroundings | null) {
+export function downwindFacts(block: BlockSnapshot | null, s: Surroundings | null, bufferM = BUFFER_M) {
   if (!block?.reading || !s) return null
   const { lo } = ends(block.reading)
   const towardDeg = (lo.windDirDeg + 180) % 360
@@ -25,7 +27,7 @@ export function downwindFacts(block: BlockSnapshot | null, s: Surroundings | nul
     windFromDeg: lo.windDirDeg,
     towardDeg,
     dir,
-    addresses: downwindOf(s.addresses, lo.windDirDeg, BUFFER_M),
+    addresses: downwindOf(s.addresses, lo.windDirDeg, bufferM),
     crop: s.crops.find(c => c.dir === dir)?.category ?? null,
     calm: lo.windMph < 1,
   }

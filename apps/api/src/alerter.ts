@@ -23,23 +23,27 @@ async function push(env: Env, sql: Sql, a: AlertMessage) {
   }
 }
 
+/** Sends one text through Linq, which delivers it as iMessage, RCS or SMS depending on the recipient. */
+export async function sendLinq(env: Env, phone: string, text: string): Promise<{ ok: boolean; detail: string }> {
+  try {
+    const res = await fetch('https://api.linqapp.com/api/partner/v3/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.LINQ_API_KEY}` },
+      body: JSON.stringify({ message: { parts: [{ type: 'text', value: text }] }, to: [phone] }),
+    })
+    return { ok: res.ok, detail: `HTTP ${res.status}` }
+  } catch (err) {
+    return { ok: false, detail: String(err) }
+  }
+}
+
+export const alertPhones = (env: Env): string[] => (env.ALERT_PHONES ?? '').split(',').map(p => p.trim()).filter(Boolean)
+
 async function imessage(env: Env, sql: Sql, a: AlertMessage) {
-  if (!env.LINQ_API_KEY || !env.ALERT_PHONES) return
-  for (const phone of env.ALERT_PHONES.split(',').map(p => p.trim()).filter(Boolean)) {
-    let ok = false
-    let detail = ''
-    try {
-      const res = await fetch('https://api.linqapp.com/api/partner/v3/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.LINQ_API_KEY}` },
-        body: JSON.stringify({ message: { parts: [{ type: 'text', value: `${a.title}\n${a.body}` }] }, to: [phone] }),
-      })
-      ok = res.ok
-      detail = `HTTP ${res.status}`
-    } catch (err) {
-      detail = String(err)
-    }
-    await insertAlert(sql, { ...a, channel: 'imessage', recipient: phone, ok, detail })
+  if (!env.LINQ_API_KEY) return
+  for (const phone of alertPhones(env)) {
+    const r = await sendLinq(env, phone, `${a.title}\n${a.body}`)
+    await insertAlert(sql, { ...a, channel: 'imessage', recipient: phone, ...r })
   }
 }
 

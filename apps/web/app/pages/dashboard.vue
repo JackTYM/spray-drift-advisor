@@ -90,6 +90,11 @@ const levels = (row: any) => (row.levels ?? []).map((l: any) => `${l.heightFt} f
     </section>
 
     <section class="card">
+      <h2>Ask Stillair</h2>
+      <AskBox />
+    </section>
+
+    <section class="card">
       <h2>One ground station compared with two heights</h2>
       <CompareTable :block="block" :ground="snap?.ground ?? null" />
     </section>

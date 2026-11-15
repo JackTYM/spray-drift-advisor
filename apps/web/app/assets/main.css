@@ -171,3 +171,18 @@ td.num { white-space: nowrap; }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 14px; margin: 14px 0 6px; font-size: 14px; color: var(--muted); }
 .stats .figure { display: block; color: var(--ink); }
 .maplibregl-ctrl-attrib { font-size: 11px; }
+
+/* ---------- assistant and label reader ---------- */
+.ask .turn { margin-bottom: 14px; }
+.ask .q { font-weight: 600; margin-bottom: 4px; }
+.ask .a { background: var(--panel); border-left: 3px solid var(--cold); padding: 10px 12px; border-radius: 2px; white-space: pre-wrap; }
+.ask .a.failed { border-left-color: var(--muted); color: var(--muted); }
+.examples { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.examples button { font: 500 15px var(--text); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px; cursor: pointer; }
+.filebtn { display: flex; align-items: center; justify-content: center; cursor: pointer; margin: 0 0 12px; }
+.filebtn input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.labelresult { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 12px 14px; margin-bottom: 12px; }
+.labelrow { padding: 8px 0; border-top: 1px solid var(--line); }
+.labelrow:first-child { border-top: 0; padding-top: 0; }
+.labelrow .label { margin-bottom: 2px; }
+.quote { font-size: 14px; color: var(--muted); font-style: italic; margin-top: 4px; }

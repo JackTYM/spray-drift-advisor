@@ -1,6 +1,9 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { BLOCKS, parseReading, readingsFromCsv, summarize, type CsvMapping } from '@drift/engine'
+import Anthropic from '@anthropic-ai/sdk'
+import { BLOCKS, RANCH, compassOf, ends, parseReading, readingsFromCsv, summarize, type CsvMapping, type Snapshot } from '@drift/engine'
+import { ask, readLabel } from './ai'
+import { alertPhones, sendLinq } from './alerter'
 import { alertRows, db, insertRecorded, latestBacktest, logRows, saveSubscription, sessionById, sessionRows } from './db'
 import type { Env } from './env'
 import { blockSurroundings } from './feeds'
@@ -77,6 +80,111 @@ app.post('/api/push/subscribe', async c => {
   const body = await c.req.json<{ role: string; subscription: { endpoint: string } }>().catch(() => null)
   if (!body?.subscription?.endpoint) return c.json({ error: 'subscription is required' }, 400)
   await saveSubscription(db(c.env), body.role ?? 'applicator', body.subscription)
+  return c.json({ ok: true })
+})
+
+// ---------- Claude: label reader and questions ----------
+
+const clock = new Intl.DateTimeFormat('en-US', { timeZone: RANCH.timeZone, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+const hm = new Intl.DateTimeFormat('en-US', { timeZone: RANCH.timeZone, hour: 'numeric', minute: '2-digit' })
+const at = (ms: number) => hm.format(new Date(ms))
+
+/** Everything the tool knows right now, as plain text. This is the only material Claude answers from. */
+async function snapshotText(env: Env): Promise<string> {
+  const stub = ranch(env)
+  const s: Snapshot = await stub.getSnapshot()
+  const lines = [
+    `Time now at the orchard: ${clock.format(new Date(s.nowMs))} (${RANCH.timeZone}). Data mode: ${s.demo.mode}.`,
+    s.ground ? `Ground station ${s.ground.station}: ${s.ground.tempF}°F, wind ${s.ground.windMph} mph from the ${compassOf(s.ground.windDirDeg)}${s.ground.rhPct !== undefined ? `, humidity ${s.ground.rhPct}%` : ''}.` : 'Ground station: no reading.',
+  ]
+  for (const b of s.blocks) {
+    const ev = b.evaluation
+    lines.push('', `${b.name} (${b.note}): status ${ev?.status ?? 'unknown, no reading yet'}.${ev ? ` A ground station alone would say ${ev.groundOnly.status}.` : ''}`)
+    if (ev) lines.push(`  Reasons: ${ev.triggers.map(t => t.text).join(' ') || 'none; no inversion and wind within limits.'}`)
+    if (b.reading && ev) {
+      const { lo, hi } = ends(b.reading)
+      lines.push(`  ${lo.heightFt} ft: ${lo.tempF}°F, wind ${lo.windMph} mph from the ${compassOf(lo.windDirDeg)}. ${hi.heightFt} ft: ${hi.tempF}°F, wind ${hi.windMph} mph from the ${compassOf(hi.windDirDeg)}. Temperature difference ${ev.deltaF > 0 ? '+' : ''}${ev.deltaF}°F. Richardson number ${ev.ri}.`)
+    }
+    lines.push(`  Next safe window: ${ev?.status === 'GO' ? 'open now' : b.window ? `${at(b.window.startMs)} to ${at(b.window.endMs)}` : 'none in the next 36 hours'}.`)
+    const forecast = await stub.forecast(b.id)
+    if (forecast.length) lines.push(`  Forecast: ${forecast.slice(0, 24).map(f => `${at(f.timeMs)} ${f.status}`).join(', ')}.`)
+    if (b.sites.length) lines.push(`  Sensitive sites nearby: ${b.sites.slice(0, 4).map(x => `${x.name} (${x.distanceM} m to the ${compassOf(x.bearingDeg)})`).join('; ')}.`)
+  }
+  const open = s.sessions.filter(x => x.phase !== 'closed')
+  lines.push('', open.length
+    ? `Open spray jobs: ${open.map(x => `${BLOCKS.find(b => b.id === x.blockId)?.name ?? x.blockId}: ${x.phase}, ${x.job.product}, ${x.job.droplet} droplets, since ${at(x.startedMs)}`).join('; ')}.`
+    : 'Open spray jobs: none.')
+  return lines.join('\n')
+}
+
+/** Claude failures never break the app: the caller gets a plain message and the status screen still works. */
+function aiError(err: unknown): string {
+  if (err instanceof Anthropic.RateLimitError) return 'The assistant is busy. Try again in a minute.'
+  if (err instanceof Anthropic.AuthenticationError) return 'The assistant is not configured.'
+  if (err instanceof Anthropic.APIError) return `The assistant is unavailable (error ${err.status}).`
+  return 'The assistant is unavailable.'
+}
+
+app.post('/api/ask', async c => {
+  const body = await c.req.json<{ question?: string }>().catch(() => null)
+  const question = body?.question?.trim()
+  if (!question) return c.json({ error: 'question is required' }, 400)
+  if (question.length > 600) return c.json({ error: 'Keep the question under 600 characters.' }, 400)
+  try {
+    return c.json({ answer: await ask(c.env, question, await snapshotText(c.env)) })
+  } catch (err) {
+    console.error('ask failed', err)
+    return c.json({ error: aiError(err) }, 502)
+  }
+})
+
+const LABEL_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf']
+app.post('/api/label', async c => {
+  const body = await c.req.json<{ data?: string; mediaType?: string }>().catch(() => null)
+  if (!body?.data || !body.mediaType || !LABEL_TYPES.includes(body.mediaType)) return c.json({ error: 'Send a photo (JPEG, PNG or WebP) or a PDF of the label.' }, 400)
+  if (body.data.length > 12_000_000) return c.json({ error: 'That file is too large. Use a smaller photo or a PDF under 8 MB.' }, 400)
+  try {
+    return c.json(await readLabel(c.env, { data: body.data, mediaType: body.mediaType }))
+  } catch (err) {
+    console.error('label failed', err)
+    return c.json({ error: aiError(err) }, 502)
+  }
+})
+
+// Replies to alert texts arrive here from Linq and are answered the same way as the in-app question box.
+async function verifyLinq(secret: string, body: string, headers: Headers): Promise<boolean> {
+  const id = headers.get('webhook-id'), ts = headers.get('webhook-timestamp'), sig = headers.get('webhook-signature')
+  if (!id || !ts || !sig || Math.abs(Date.now() / 1000 - Number(ts)) > 300) return false
+  const raw = Uint8Array.from(atob(secret.startsWith('whsec_') ? secret.slice(6) : secret), ch => ch.charCodeAt(0))
+  const key = await crypto.subtle.importKey('raw', raw, { name: 'HMAC', hash: 'SHA-256' }, false, ['verify'])
+  const data = new TextEncoder().encode(`${id}.${ts}.${body}`)
+  for (const part of sig.split(' ')) {
+    if (!part.startsWith('v1,')) continue
+    try {
+      const given = Uint8Array.from(atob(part.slice(3)), ch => ch.charCodeAt(0))
+      if (await crypto.subtle.verify('HMAC', key, given, data)) return true
+    } catch { /* malformed signature */ }
+  }
+  return false
+}
+
+app.post('/api/linq/webhook', async c => {
+  const secret = c.env.LINQ_WEBHOOK_SECRET
+  if (!secret) return c.json({ error: 'webhook not configured' }, 503)
+  const raw = await c.req.text()
+  if (!(await verifyLinq(secret, raw, c.req.raw.headers))) return c.json({ error: 'bad signature' }, 401)
+  const event = JSON.parse(raw) as { event_type?: string; data?: { direction?: string; sender_handle?: { handle?: string; is_me?: boolean }; parts?: { type: string; value?: string }[] } }
+  const phone = event.data?.sender_handle?.handle
+  const text = (event.data?.parts ?? []).filter(p => p.type === 'text').map(p => p.value ?? '').join(' ').trim()
+  // Only people on the alert list get answers; anyone else texting the line is ignored.
+  if (event.event_type !== 'message.received' || event.data?.direction !== 'inbound' || event.data.sender_handle?.is_me || !phone || !text || !alertPhones(c.env).includes(phone)) {
+    return c.json({ ok: true, ignored: true })
+  }
+  c.executionCtx.waitUntil((async () => {
+    let answer: string
+    try { answer = await ask(c.env, text.slice(0, 600), await snapshotText(c.env)) } catch (err) { console.error('reply failed', err); answer = aiError(err) }
+    await sendLinq(c.env, phone, answer)
+  })())
   return c.json({ ok: true })
 })
 

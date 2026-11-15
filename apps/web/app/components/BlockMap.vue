@@ -10,7 +10,8 @@ const color = { GO: '#2fbf71', CAUTION: '#f0b429', STOP: '#ef4f3c' } as const
 let map: L.Map | undefined
 let layer: L.LayerGroup | undefined
 
-const facts = computed(() => downwindFacts(props.blocks.find(b => b.id === props.selected) ?? null, props.surroundings))
+const bufferM = useBufferM()
+const facts = computed(() => downwindFacts(props.blocks.find(b => b.id === props.selected) ?? null, props.surroundings, bufferM.value))
 
 function draw() {
   if (!map || !layer) return
@@ -19,7 +20,7 @@ function draw() {
   const f = facts.value
 
   if (sel && props.surroundings) {
-    L.circle([sel.lat, sel.lon], { radius: BUFFER_M, color: '#e9eff6', weight: 1.5, dashArray: '6 6', fill: false }).addTo(layer)
+    L.circle([sel.lat, sel.lon], { radius: bufferM.value, color: '#e9eff6', weight: 1.5, dashArray: '6 6', fill: false }).addTo(layer)
     const downwind = new Set((f?.addresses ?? []).map(a => `${a.lat},${a.lon}`))
     for (const a of props.surroundings.addresses) {
       const hit = downwind.has(`${a.lat},${a.lon}`)
@@ -31,7 +32,7 @@ function draw() {
       L.marker([c.lat, c.lon], { interactive: false, icon: L.divIcon({ className: 'crop-label', html: c.category, iconSize: [120, 18] }) }).addTo(layer)
     }
     if (f && !f.calm) {
-      const tip = offsetPoint(sel.lat, sel.lon, f.towardDeg, BUFFER_M + 60)
+      const tip = offsetPoint(sel.lat, sel.lon, f.towardDeg, bufferM.value + 60)
       const left = offsetPoint(tip.lat, tip.lon, f.towardDeg + 150, 70)
       const right = offsetPoint(tip.lat, tip.lon, f.towardDeg - 150, 70)
       L.polyline([[sel.lat, sel.lon], [tip.lat, tip.lon]], { color: '#f2994a', weight: 4 }).addTo(layer)
@@ -76,10 +77,10 @@ watch(() => props.selected, id => {
       <template v-if="facts.calm">Wind at the lowest level is near calm, so drift has no clear direction.</template>
       <template v-else>
         Wind at the lowest level carries spray toward the <strong>{{ facts.dir }}</strong>.
-        <strong>{{ facts.addresses.length }}</strong> {{ facts.addresses.length === 1 ? 'address lies' : 'addresses lie' }} within {{ BUFFER_M }} m that way<template v-if="facts.crop">; the land there is mapped as <strong>{{ facts.crop.toLowerCase() }}</strong></template>.
+        <strong>{{ facts.addresses.length }}</strong> {{ facts.addresses.length === 1 ? 'address lies' : 'addresses lie' }} within {{ bufferM }} m that way<template v-if="facts.crop">; the land there is mapped as <strong>{{ facts.crop.toLowerCase() }}</strong></template>.
       </template>
       <span v-if="surroundings.lowGround"> This block sits below its surroundings, where cold air pools.</span>
     </p>
-    <p class="muted">Dashed ring: {{ BUFFER_M }} m example buffer from the block centre. Use the distance on the product label.</p>
+    <p class="muted">Dashed ring: {{ bufferM }} m example buffer from the block centre. Use the distance on the product label.</p>
   </div>
 </template>
