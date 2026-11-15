@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { normalCdf, type PlanHour, type SprayWindow } from '@drift/engine'
+import type { PlanHour, SprayWindow } from '@drift/engine'
+import type { Shares } from '~/utils/shares'
 
 /**
  * The hours ahead as stacked shares: how likely each hour is to be sprayable (green), marginal (amber) or closed (red),
  * given the measured error of the estimate. The thin strip underneath is the single most likely outcome.
  * Dark bars on top are the windows the whole job fits in.
  */
-const props = withDefaults(defineProps<{ hours: PlanHour[]; windows?: SprayWindow[]; selected?: number; nowMs?: number; height?: number; labels?: boolean }>(), { windows: () => [], selected: 0, nowMs: 0, height: 150, labels: true })
+/** `series` replaces the per-hour shares, for a chart that combines several fields. */
+const props = withDefaults(defineProps<{ series?: Shares[]; hours: PlanHour[]; windows?: SprayWindow[]; selected?: number; nowMs?: number; height?: number; labels?: boolean }>(), { windows: () => [], selected: 0, nowMs: 0, height: 150, labels: true })
 const emit = defineEmits<{ select: [timeMs: number] }>()
 
 const HOUR = 3_600_000
@@ -14,14 +16,9 @@ const STEP = 10
 const W = computed(() => Math.max(props.hours.length, 1) * STEP)
 const H = 100
 
-/** Shares for one hour. Wind under the minimum is Caution by the rules; an inversion, wind over the limit or wind toward a site is Stop. */
-const shares = computed(() => props.hours.map(h => {
-  const m = h.margins
-  const go = h.confidence
-  const hardOk = normalCdf(m.inversion / m.sd) * normalCdf(m.windHigh / m.sw) * normalCdf(m.gust / (m.sw * 1.5)) * (m.other < 1 ? m.other : 1)
-  const stop = Math.min(Math.max(1 - hardOk, 0), 1 - go)
-  return { go, caution: Math.max(1 - go - stop, 0), stop }
-}))
+const shares = computed<Shares[]>(() => props.series ?? props.hours.map(hourShares))
+/** The most likely outcome for an hour: the field's own status, or the largest share when fields are combined. */
+const likely = (i: number) => { const s = shares.value[i]!; return !props.series ? props.hours[i]!.status : s.go >= s.caution && s.go >= s.stop ? 'GO' : s.caution >= s.stop ? 'CAUTION' : 'STOP' }
 const x = (i: number) => i * STEP + STEP / 2
 /** A filled band from the bottom up to a level per hour, drawn edge to edge. */
 function band(level: (i: number) => number): string {
@@ -54,7 +51,7 @@ function pick(e: MouseEvent) {
       <!-- The windows the whole job fits in. -->
       <rect v-for="w in windows" :key="w.startMs" :x="at(w.startMs)" y="-7" :width="Math.max(at(w.endMs) - at(w.startMs), 2)" height="4" fill="var(--ink)" />
       <!-- The single most likely outcome for each hour. -->
-      <rect v-for="(h, i) in hours" :key="h.timeMs" :x="i * STEP" :y="H + 3" :width="STEP" height="6" :fill="color[h.status]" />
+      <rect v-for="(h, i) in hours" :key="h.timeMs" :x="i * STEP" :y="H + 3" :width="STEP" height="6" :fill="color[likely(i)]" />
       <line v-if="nowMs && hours.length" :x1="at(nowMs)" :x2="at(nowMs)" y1="-8" :y2="H + 10" stroke="var(--cold)" stroke-width="1.2" vector-effect="non-scaling-stroke" />
       <rect v-if="selected && hours.some(h => h.timeMs === selected)" :x="at(selected)" y="0" :width="STEP" :height="H" fill="rgba(255,255,255,.14)" stroke="var(--ink)" stroke-width="1.5" vector-effect="non-scaling-stroke" />
     </svg>

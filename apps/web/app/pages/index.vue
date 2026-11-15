@@ -259,9 +259,9 @@ const askContext = computed(() => {
         <section v-if="fields.length > 1" class="card">
           <div class="cardhead">
             <h2>The next 48 hours, every field</h2>
-            <span class="muted">Share of outcomes that are sprayable (green), marginal (amber) or closed (red). Dark bars on top: windows the whole job fits. Click any hour.</span>
+            <span class="muted">All {{ fields.length }} fields together: for each hour, the share that is sprayable (green), marginal (amber) or closed (red). Dark bars on top: a window is open at some field. Click an hour.</span>
           </div>
-          <FieldsOverview :fields="ordered.map(x => x.f)" :plans="plans" :selected-id="field.id" :selected-ms="hour?.timeMs ?? 0" :windows="Object.fromEntries(fields.map(f => [f.id, windowsFor(f.id)]))" :now-ms="now" @select="(id, ms) => { fieldId = id; nextTick(() => { picked = ms || null }) }" />
+<FieldsOverview :fields="fields" :plans="plans" :selected-ms="hour?.timeMs ?? 0" :windows="Object.fromEntries(fields.map(f => [f.id, windowsFor(f.id)]))" :now-ms="now" @select="picked = $event" />
         </section>
 
         <section class="card">
