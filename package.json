@@ -1,0 +1,9 @@
+{
+  "name": "spray-drift-advisor",
+  "private": true,
+  "scripts": {
+    "test": "pnpm -r test",
+    "dev:api": "pnpm --filter @drift/api dev",
+    "dev:web": "pnpm --filter @drift/web dev"
+  }
+}

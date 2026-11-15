@@ -1,0 +1,11 @@
+node_modules/
+.claude/
+.idea/
+docs/superpowers/
+.superpowers/
+.output/
+.nuxt/
+.wrangler/
+.dev.vars
+.env
+dist/
