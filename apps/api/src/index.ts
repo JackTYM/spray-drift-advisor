@@ -243,6 +243,15 @@ async function snapshotText(env: Env): Promise<string> {
     if (forecast.length) lines.push(`  Forecast: ${forecast.slice(0, 24).map(f => `${at(f.timeMs)} ${f.status}`).join(', ')}.`)
     if (b.sites.length) lines.push(`  Sensitive sites nearby: ${b.sites.slice(0, 4).map(x => `${x.name} (${x.distanceM} m to the ${compassOf(x.bearingDeg)})`).join('; ')}.`)
   }
+  // The planner's view, so a text answer and the Plan page never disagree: a job is about 45 minutes and is not stopped once started.
+  const sql = db(env)
+  const plans = await Promise.all(BLOCKS.map(b => cachedPlan(sql, { id: b.id, name: b.name, lat: b.lat, lon: b.lon }, 45, p => { void p }).catch(() => null)))
+  lines.push('', 'Window plan for a whole 45 minute job (this is what to answer with when asked whether or when to spray; "GO right now" alone is not enough because the job must finish inside the window):')
+  for (const p of plans) {
+    if (!p || 'error' in p) continue
+    lines.push(`  ${planText(p.field.name, 45, p.windows[0] ?? null, Date.now())}`)
+
+  }
   const open = s.sessions.filter(x => x.phase !== 'closed')
   lines.push('', open.length
     ? `Open spray jobs: ${open.map(x => `${BLOCKS.find(b => b.id === x.blockId)?.name ?? x.blockId}: ${x.phase}, ${x.job.product}, ${x.job.droplet} droplets, since ${at(x.startedMs)}`).join('; ')}.`
