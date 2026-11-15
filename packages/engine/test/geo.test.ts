@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addressesFromPima, buildingsFromOverpass, compassOf, downwindOf, isLowGround, offsetPoint, parseCdl, toAlbers } from '../src/geo'
+import { addressesFromPima, buildingsFromOverpass, compassOf, quadkey, downwindOf, isLowGround, offsetPoint, parseCdl, toAlbers } from '../src/geo'
 import { distanceM } from '../src/adapters'
 
 describe('geo', () => {
@@ -49,6 +49,9 @@ describe('geo', () => {
     expect(b[0]!.bearingDeg).toBeGreaterThan(85)
     expect(b[0]!.bearingDeg).toBeLessThan(95)
     expect(b[0]!.distanceM).toBeGreaterThan(250)
+  })
+  it('computes the tile key used by the building footprint files', () => {
+    expect(quadkey(31.945, -110.956, 9)).toBe('023120010')
   })
   it('flags a block that sits below its surroundings', () => {
     expect(isLowGround(2690, [2700, 2698, 2702, 2696])).toBe(true)

@@ -5,7 +5,7 @@ import { MapboxOverlay } from '@deck.gl/mapbox'
 import { ScatterplotLayer } from '@deck.gl/layers'
 import {
   ALOFT_M, BLOCKS, CANOPY_M, LOW_M, SETTLE, batchDrift, bounds, downwindOf, driftEnv, ends, gaussian, localOutline, mulberry32, pointInPolygon,
-  rowSpans, stepDroplet, toLngLat,
+  buildingFromRing, rowSpans, stepDroplet, toLngLat,
   type BlockSnapshot, type Building, type DriftEnv, type Droplet, type Job, type Surroundings,
 } from '@drift/engine'
 
@@ -30,7 +30,9 @@ let drops: Droplet[] = []
 let deposits: { x: number; y: number; off: boolean }[] = []
 let sprayerRow = 0, sprayerX = 0, sprayerDir = 1
 /** Real building outlines from OpenStreetMap, fetched once and shipped with the app. */
-const buildings = ref<Record<string, Building[]>>({})
+const footprints = ref<{ ring: [number, number][]; heightM?: number }[]>([])
+/** Every loaded building, with its bearing and distance from the selected block. */
+const buildings = computed<Building[]>(() => footprints.value.map(f => buildingFromRing(f.ring, model.value.lat, model.value.lon, f.heightM)))
 const rand = mulberry32(7)
 const g = gaussian(rand)
 
@@ -38,7 +40,12 @@ const model = computed(() => BLOCKS.find(b => b.id === props.selected) ?? BLOCKS
 const snap = computed(() => props.blocks.find(b => b.id === props.selected) ?? null)
 /** The selected block's real field boundary and tree rows, in metres from its centre. */
 const field = computed(() => localOutline(model.value))
-const spans = computed(() => rowSpans(field.value, ROW_SPACING_M))
+/** Rows in the order the sprayer drives them: starting on the upwind side, so drift crosses the block. */
+const spans = computed(() => {
+  const rows = rowSpans(field.value, ROW_SPACING_M)
+  const towardNorth = facts.value && !facts.value.calm ? Math.cos((facts.value.towardDeg * Math.PI) / 180) > 0 : false
+  return towardNorth ? rows : [...rows].reverse()
+})
 const facts = computed(() => downwindFacts(snap.value, props.surroundings))
 
 const rect = (lat0: number, lon0: number, x0: number, y0: number, x1: number, y1: number) =>
@@ -85,8 +92,8 @@ function drawStatic() {
   setData('tower', collection([feature(rect(m.lat, m.lon, east + 8, -2, east + 12, 2), { h: hiFt * 0.3048 * EXAG })]))
 
   // Real outlines where OpenStreetMap has them; otherwise a small box at each county address point.
-  const outlines3d = BLOCKS.flatMap(b => buildings.value[b.id] ?? [])
-  const mine = buildings.value[m.id] ?? []
+  const outlines3d = buildings.value
+  const mine = buildings.value
   const wind = facts.value && !facts.value.calm ? facts.value.windFromDeg : null
   const hit = new Set(wind === null ? [] : downwindOf(mine, wind, BUFFER_M))
   if (outlines3d.length) {
@@ -99,6 +106,19 @@ function drawStatic() {
         { color: downwind.has(`${a.lat},${a.lon}`) ? '#f2994a' : '#dfe6ee' })
     })))
   }
+
+  // Arrow on the ground beyond the downwind edge: where the wind at the lowest level carries spray.
+  const arrow = []
+  if (facts.value && !facts.value.calm) {
+    const t = (facts.value.towardDeg * Math.PI) / 180
+    const d = { x: Math.sin(t), y: Math.cos(t) }, n = { x: d.y, y: -d.x }
+    const bb = bounds(field.value)
+    const start = Math.max(bb.maxX - bb.minX, bb.maxY - bb.minY) / 2 + 40
+    const at = (along: number, across: number) => toLngLat(m.lat, m.lon, d.x * (start + along) + n.x * across, d.y * (start + along) + n.y * across)
+    const ring = [at(0, -9), at(150, -9), at(150, -30), at(215, 0), at(150, 30), at(150, 9), at(0, 9), at(0, -9)]
+    arrow.push(feature([ring], {}))
+  }
+  setData('wind', collection(arrow))
 
   const lid = env?.lidM ?? null
   setData('lid', collection(lid === null ? [] : [feature(rect(m.lat, m.lon, -750, -750, 750, 750), { base: lid * EXAG, top: lid * EXAG + 3 })]))
@@ -114,7 +134,7 @@ function tick() {
   const rows = spans.value
   if (rows.length) {
     const row = rows[sprayerRow % rows.length]!
-    sprayerX += sprayerDir * 2.4
+    sprayerX += sprayerDir * Math.max((row.x1 - row.x0) / 90, 2.4)
     if (sprayerX > row.x1 - 6 || sprayerX < row.x0 + 6) {
       sprayerRow = (sprayerRow + 1) % rows.length
       sprayerDir *= -1
@@ -179,14 +199,14 @@ function resetAir() {
 
 onMounted(() => {
   const m = model.value
-  $fetch<Record<string, Building[]>>('/buildings.json').then(b => { buildings.value = b; drawStatic() }).catch(() => { /* boxes are used instead */ })
+  $fetch<{ ring: [number, number][]; heightM?: number }[]>('/buildings.json').then(b => { footprints.value = b; drawStatic() }).catch(() => { /* boxes are used instead */ })
   try {
     maplibregl.setWorkerUrl('/maplibre-gl-worker.mjs')
     map = new maplibregl.Map({
       container: el.value!, center: [m.lon, m.lat], zoom: 15, pitch: 58, bearing: -35, maxPitch: 85, attributionControl: { compact: true },
       style: {
         version: 8,
-        sources: { sat: { type: 'raster', tileSize: 256, maxzoom: 16, tiles: ['https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}'], attribution: 'Imagery: USGS The National Map. Buildings: OpenStreetMap contributors. Addresses: Pima County.' } },
+        sources: { sat: { type: 'raster', tileSize: 256, maxzoom: 16, tiles: ['https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}'], attribution: 'Imagery: USGS The National Map. Buildings: Microsoft Building Footprints. Addresses: Pima County.' } },
         layers: [{ id: 'sat', type: 'raster', source: 'sat' }],
       },
     })
@@ -198,7 +218,8 @@ onMounted(() => {
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right')
   map.on('load', () => {
     const empty = collection([])
-    for (const id of ['rows', 'outlines', 'tower', 'addresses', 'lid']) map!.addSource(id, { type: 'geojson', data: empty as never })
+    for (const id of ['rows', 'outlines', 'tower', 'addresses', 'lid', 'wind']) map!.addSource(id, { type: 'geojson', data: empty as never })
+    map!.addLayer({ id: 'wind', type: 'fill', source: 'wind', paint: { 'fill-color': '#f2994a', 'fill-opacity': 0.95, 'fill-outline-color': '#0d1826' } })
     map!.addLayer({ id: 'outlines', type: 'line', source: 'outlines', paint: { 'line-color': ['get', 'color'], 'line-width': 4 } })
     map!.addLayer({ id: 'rows', type: 'fill-extrusion', source: 'rows', paint: { 'fill-extrusion-color': '#2c6a45', 'fill-extrusion-height': CANOPY_M * EXAG, 'fill-extrusion-opacity': 0.92 } })
     map!.addLayer({ id: 'addresses', type: 'fill-extrusion', source: 'addresses', paint: { 'fill-extrusion-color': ['get', 'color'], 'fill-extrusion-height': 9, 'fill-extrusion-opacity': 0.95 } })
@@ -246,6 +267,7 @@ const pct = (n: number) => `${Math.round((n / done.value) * 100)}%`
         <div v-else-if="batch"><span class="figure">0 / 1,000</span>reach any address within 600 m</div>
       </div>
       <p class="muted">
+        <template v-if="facts && !facts.calm">The amber arrow shows where the wind at the lowest level carries spray: toward the {{ facts.dir }}. The sprayer starts on the upwind side. </template>
         Droplet colour shows height: <span style="color:#ff7864">below 15 ft</span>, <span style="color:#ffd678">15 to 40 ft</span>, <span style="color:#96cdff">above 40 ft</span>.
         Dots on the ground are where droplets came down: pale purple inside the block, pink outside it. <span v-if="hasLid">The amber sheet is the estimated top of the inversion.</span>
         This is a model for comparing conditions with each other, not a prediction of how much spray lands where.

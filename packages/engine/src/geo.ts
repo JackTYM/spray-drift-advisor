@@ -97,7 +97,7 @@ export interface Surroundings {
 
 // ---------- Building outlines (OpenStreetMap) ----------
 
-export interface Building { ring: [number, number][]; lat: number; lon: number; bearingDeg: number; distanceM: number; name: string | null }
+export interface Building { ring: [number, number][]; lat: number; lon: number; bearingDeg: number; distanceM: number; name: string | null; heightM?: number }
 
 export const buildingsQuery = (lat: number, lon: number, radiusM: number): string =>
   `[out:json][timeout:40];way["building"](around:${radiusM},${lat},${lon});out tags geom;`
@@ -116,4 +116,26 @@ export function buildingsFromOverpass(json: any, lat: number, lon: number): Buil
     })
   }
   return out.sort((a, b) => a.distanceM - b.distanceM)
+}
+
+/** A building from a plain [lon, lat] ring, placed relative to a block centre. */
+export function buildingFromRing(ring: [number, number][], lat: number, lon: number, heightM?: number): Building {
+  const cLat = ring.reduce((s, p) => s + p[1], 0) / ring.length
+  const cLon = ring.reduce((s, p) => s + p[0], 0) / ring.length
+  const b: Building = { ring, lat: cLat, lon: cLon, name: null, bearingDeg: bearingDeg(lat, lon, cLat, cLon), distanceM: Math.round(distanceM(lat, lon, cLat, cLon)) }
+  if (heightM && heightM > 0) b.heightM = Math.round(heightM * 10) / 10
+  return b
+}
+
+/** Bing-style tile key for the tile containing a point, used by Microsoft's building footprint files. */
+export function quadkey(lat: number, lon: number, zoom: number): string {
+  const n = 2 ** zoom
+  const x = Math.floor(((lon + 180) / 360) * n)
+  const y = Math.floor(((1 - Math.asinh(Math.tan((lat * Math.PI) / 180)) / Math.PI) / 2) * n)
+  let key = ''
+  for (let i = zoom; i > 0; i--) {
+    const mask = 1 << (i - 1)
+    key += String((x & mask ? 1 : 0) + (y & mask ? 2 : 0))
+  }
+  return key
 }
