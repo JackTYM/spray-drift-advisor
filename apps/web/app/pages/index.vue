@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BLOCKS, areaAcres, evaluate, localOutline, scenarioById, sprayEconomics, whatIfReading, type BlockSnapshot } from '@drift/engine'
+import { BLOCKS, SCENARIOS, areaAcres, evaluate, localOutline, scenarioById, sprayEconomics, whatIfReading, type BlockSnapshot } from '@drift/engine'
 
 const { snap, api } = useRanch()
 const route = useRoute()
@@ -68,7 +68,15 @@ const marks = computed(() => (snap.value?.demo.mode === 'scenario' ? scenarioByI
 const jump = (min: number) => $fetch(`${api}/api/demo`, { method: 'POST', body: { seekMin: min } }).then(refresh)
 const blockName = computed(() => BLOCKS.find(b => b.id === blockId.value)?.name ?? '')
 const feeds = computed(() => (snap.value?.sources ?? []).filter(s => s.role === 'Tower' || s.role === 'Ground station').map(s => `${s.role}: ${s.kind}, ${s.adapter}`).join('. '))
-const mode = computed(() => ({ live: 'Live', scenario: 'Scripted night', replay: 'Replay of a real night' })[snap.value?.demo.mode ?? 'live'])
+/** Which data the page is showing: live, or one of the scripted nights that play from the start. */
+const source = computed(() => (snap.value?.demo.mode === 'scenario' ? snap.value.demo.scenarioId : snap.value?.demo.mode ?? 'live'))
+async function setSource(value: string) {
+  if (value === 'replay') return
+  whatIf.on.value = false
+  const body = value === 'live' ? { mode: 'live', reset: true } : { mode: 'scenario', scenarioId: value, stepMin: 2, reset: true }
+  await $fetch(`${api}/api/demo`, { method: 'POST', body }).catch(() => null)
+  refresh()
+}
 </script>
 
 <template>
@@ -84,7 +92,14 @@ const mode = computed(() => ({ live: 'Live', scenario: 'Scripted night', replay:
         <span class="muted">Jump to</span>
         <button v-for="m in marks" :key="m.label" @click="jump(m.min)">{{ m.label }}</button>
       </div>
-      <div class="muted clock">{{ mode }}, {{ snap ? fmtStamp(snap.nowMs) : '' }}</div>
+      <div class="clock">
+        <select :value="source" aria-label="Data shown" class="sourcepick" @change="setSource(($event.target as HTMLSelectElement).value)">
+          <option value="live">Live conditions</option>
+          <option v-for="s in SCENARIOS.filter(x => x.marks.length)" :key="s.id" :value="s.id">Example night: {{ s.name.toLowerCase() }}</option>
+          <option v-if="snap?.demo.mode === 'replay'" value="replay">Replay of {{ snap.demo.replayDate }}</option>
+        </select>
+        <span class="muted">{{ snap ? fmtStamp(snap.nowMs) : '' }}</span>
+      </div>
     </div>
 
     <WhatIfBar v-if="whatIf.on.value" />
@@ -163,7 +178,7 @@ const mode = computed(() => ({ live: 'Live', scenario: 'Scripted night', replay:
           <CalcDetails v-else :reading="block?.reading ?? null" :ground="snap?.ground ?? null" />
         </section>
 
-        <p class="muted feeds">{{ feeds }}. <NuxtLink to="/setup">Data sources and setup</NuxtLink></p>
+        <p class="muted feeds">{{ feeds }}.</p>
       </div>
     </div>
   </main>
