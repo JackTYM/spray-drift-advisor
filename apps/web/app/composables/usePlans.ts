@@ -1,4 +1,4 @@
-import { APPLICATION_METHODS, BLOCKS, jobWindows, jobMinutesFor, type ApplicationMethod, type FieldEstimate, type PlanHour, type SensitiveSite, type Skill, type JobWindow, type StationObs, type Terrain } from '@drift/engine'
+import { APPLICATION_METHODS, BLOCKS, jobConfidence, jobWindows, jobMinutesFor, type ApplicationMethod, type FieldEstimate, type PlanHour, type SensitiveSite, type Skill, type JobWindow, type StationObs, type Terrain } from '@drift/engine'
 
 export interface PlanField { id: string; name: string; lat: number; lon: number; custom?: boolean }
 export interface Plan {
@@ -96,5 +96,26 @@ export function usePlans() {
     refresh()
     setInterval(refresh, 5 * 60_000)
   }
-  return { fields, plans, errors, minutesFor, windowsFor, addField, removeField, setMinutes, jobFor, setJob, PRESET_FIELDS }
+  /**
+   * When no stretch reaches the confidence bar, the least-bad one: the start with the best chance of finishing,
+   * among starts where no hour of the job is a hard stop, and what holds it back.
+   */
+  function bestChance(id: string): { startMs: number; confidence: number; reason: string } | null {
+    const hours = plans.value[id]?.hours ?? []
+    const job = minutesFor(id) * 60_000
+    let best: { startMs: number; confidence: number; reason: string } | null = null
+    for (const h of hours) {
+      if (h.timeMs < Date.now() - 15 * 60_000) continue
+      const covered = hours.filter(x => x.timeMs + 3_600_000 > h.timeMs && x.timeMs < h.timeMs + job)
+      if (!covered.length || covered.some(x => x.status === 'STOP')) continue
+      const confidence = jobConfidence(hours, h.timeMs, minutesFor(id))
+      if (confidence > (best?.confidence ?? 0.09)) {
+        const weakest = [...covered].sort((a, b) => a.confidence - b.confidence)[0]!
+        best = { startMs: h.timeMs, confidence, reason: weakest.reasons[0] ?? 'Wind is forecast close to a limit, so a small change would close it.' }
+      }
+    }
+    return best
+  }
+
+  return { bestChance, fields, plans, errors, minutesFor, windowsFor, addField, removeField, setMinutes, jobFor, setJob, PRESET_FIELDS }
 }

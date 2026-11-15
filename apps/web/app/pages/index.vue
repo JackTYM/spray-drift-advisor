@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { BLOCKS, breakTime, confidenceWord, evaluate, towerModelFor, type BlockSnapshot, type RouteField, type Status } from '@drift/engine'
 
-const { fields, plans, errors, minutesFor, windowsFor, addField, removeField, PRESET_FIELDS } = usePlans()
+const { bestChance, fields, plans, errors, minutesFor, windowsFor, addField, removeField, PRESET_FIELDS } = usePlans()
 /** Windows start on 15 minute steps, so one that starts within a step of now is open. */
 const OPEN_SLACK_MS = 15 * 60_000
 const fieldId = ref('block-3')
@@ -19,7 +19,10 @@ function outlook(id: string) {
   const p = plans.value[id]
   if (!p) return { state: errors.value[id] ? 'NO DATA' : '…', status: undefined as Status | undefined, startMs: Infinity }
   const w = windowsFor(id)[0]
-  if (!w) return { state: 'NONE', status: 'STOP' as Status, startMs: Infinity }
+  if (!w) {
+    const b = bestChance(id)
+    return b ? { state: `${fmtDay(b.startMs)} ${fmtHour(b.startMs)} · ${Math.round(b.confidence * 100)}%`.toUpperCase(), status: undefined as Status | undefined, startMs: b.startMs + 1e12 } : { state: 'NONE', status: 'STOP' as Status, startMs: Infinity }
+  }
   const open = w.startMs <= now.value + OPEN_SLACK_MS
   return { state: open ? 'OPEN' : `${fmtDay(w.startMs)} ${fmtHour(w.startMs)}`.toUpperCase(), status: (open ? 'GO' : 'CAUTION') as Status, startMs: open ? 0 : w.startMs }
 }
@@ -35,6 +38,7 @@ const clears = computed(() => (plan.value ? breakTime(plan.value.hours) : null))
 const routeFields = computed<RouteField[]>(() => fields.value.filter(f => plans.value[f.id]).map(f => ({ id: f.id, name: f.name, lat: f.lat, lon: f.lon, jobMinutes: minutesFor(f.id), windows: windowsFor(f.id) })))
 const presets = computed(() => PRESET_FIELDS.filter(p => !fields.value.some(f => f.name === p.name)))
 function addPreset(p: { name: string; lat: number; lon: number }) { fieldId.value = addField(p.lat, p.lon, p.name).id }
+const chance = computed(() => (next.value ? null : bestChance(field.value.id)))
 const pct = (c: number) => `${Math.round(c * 100)}%`
 
 /** The hour being previewed: the one clicked, or the start of the next window, or now. */
@@ -42,7 +46,7 @@ const picked = ref<number | null>(null)
 watch(fieldId, () => { picked.value = null })
 const hour = computed(() => {
   const hs = plan.value?.hours ?? []
-  return hs.find(h => h.timeMs === picked.value) ?? hs.find(h => h.timeMs === next.value?.startMs) ?? hs[0] ?? null
+  return hs.find(h => h.timeMs === picked.value) ?? hs.find(h => h.timeMs === (next.value?.startMs ?? chance.value?.startMs)) ?? hs[0] ?? null
 })
 const hourEval = computed(() => (hour.value ? evaluate({ history: [hour.value.reading], nowMs: hour.value.timeMs, sites: plan.value?.sites ?? [] }) : null))
 const hourStatuses = computed(() => Object.fromEntries(fields.value.map(f => [f.id, plans.value[f.id]?.hours.find(h => h.timeMs === hour.value?.timeMs)?.status])))
@@ -108,7 +112,7 @@ const askContext = computed(() => {
 
     <div class="split">
       <aside class="decide">
-        <div class="banner plan" :class="!plan ? 'wait' : openNow ? 'GO' : next ? 'CAUTION' : 'STOP'" role="status" aria-live="polite">
+        <div class="banner plan" :class="!plan ? 'wait' : openNow ? 'GO' : next ? 'CAUTION' : chance ? 'marginal' : 'STOP'" role="status" aria-live="polite">
           <div class="where">{{ field.name }} · next window for a {{ minutes }} minute job</div>
           <template v-if="!plan">
             <div class="big">{{ errors[field.id] ? 'No data' : 'Working' }}</div>
@@ -121,9 +125,15 @@ const askContext = computed(() => {
             </div>
             <div class="conf"><span>Confidence</span><strong>{{ pct(next.confidence) }}</strong><span>{{ confidenceWord(next.confidence) }}</span></div>
           </template>
+          <template v-else-if="chance">
+            <div class="where" style="margin-top:8px">No firm window. Best chance:</div>
+            <div class="big">{{ fmtWhen(chance.startMs, now) }}</div>
+            <div class="why">{{ chance.reason }}</div>
+            <div class="conf"><span>Chance of finishing clear</span><strong>{{ pct(chance.confidence) }}</strong><span>below the 50% bar</span></div>
+          </template>
           <template v-else>
             <div class="big">No window</div>
-            <div class="why">No stretch of {{ minutes }} minutes in the next 48 hours keeps at least a 50% chance of finishing clear.</div>
+            <div class="why">Every stretch of {{ minutes }} minutes in the next 48 hours has a hard stop in it: an inversion, wind over the limit, or wind toward buildings.</div>
           </template>
         </div>
 

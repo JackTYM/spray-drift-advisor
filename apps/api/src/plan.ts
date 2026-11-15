@@ -1,9 +1,8 @@
 import {
-  BLOCKS, COMPASS, angleDiff, analyzeTerrain, azmetAllLatestUrl, distanceM, findWindows, fuse, leaveOneOut, metarUrl, obsFromAzmetAll, obsFromMetar, planHours, residuals, terrainPoints,
+  BLOCKS, analyzeTerrain, azmetAllLatestUrl, distanceM, findWindows, fuse, leaveOneOut, metarUrl, obsFromAzmetAll, obsFromMetar, planHours, residuals, terrainPoints,
   type FieldEstimate, type HourModel, type ModelNow, type PlanHour, type SensitiveSite, type Skill, type SprayWindow, type StationObs, type Terrain,
 } from '@drift/engine'
 import { cacheGet, cachePut, type Sql } from './db'
-import { blockSurroundings } from './feeds'
 
 /**
  * The planner's data: every public near-ground station around the field, the weather model at each of
@@ -94,19 +93,15 @@ async function fieldTerrain(sql: Sql, key: string, lat: number, lon: number): Pr
   return Array.isArray(elevs) && elevs.length === 25 ? analyzeTerrain(elevs) : null
 }
 
-/** Homes and buildings close to a block count as sensitive: an hour whose wind blows toward them is not a spray window. */
+/**
+ * Buildings within 300 m of each block's centre, by compass sector, counted once from the Microsoft building
+ * footprints the 3D view draws (apps/web/public/buildings.json). An hour whose wind blows toward them is not a window.
+ */
 const NEIGHBOUR_M = 300
-async function neighbours(sql: Sql, block: (typeof BLOCKS)[number]): Promise<SensitiveSite[]> {
-  try {
-    const near = (await blockSurroundings(sql, block)).addresses.filter(a => a.distanceM <= NEIGHBOUR_M)
-    return COMPASS.map((dir, i) => {
-      const inSector = near.filter(a => angleDiff(a.bearingDeg, i * 45) <= 22.5)
-      return inSector.length ? { name: `${inSector.length} ${inSector.length === 1 ? 'address' : 'addresses'} within ${NEIGHBOUR_M} m to the ${dir}`, type: 'residence', bearingDeg: i * 45, distanceM: Math.min(...inSector.map(a => a.distanceM)) } : null
-    }).filter((x): x is SensitiveSite => x !== null)
-  } catch {
-    return []
-  }
-}
+const NEIGHBOURS: Record<string, { dir: string; bearingDeg: number; count: number; nearestM: number }[]> = {"block-1": [], "block-2": [], "block-3": [{"dir": "N", "bearingDeg": 0, "count": 6, "nearestM": 188}, {"dir": "NE", "bearingDeg": 45, "count": 2, "nearestM": 135}]}
+const neighbours = (blockId: string): SensitiveSite[] => (NEIGHBOURS[blockId] ?? []).map(n => ({
+  name: `${n.count} ${n.count === 1 ? 'building' : 'buildings'} within ${NEIGHBOUR_M} m to the ${n.dir}`, type: 'building', bearingDeg: n.bearingDeg, distanceM: n.nearestM,
+}))
 
 export interface Plan {
   field: { id: string; name: string; lat: number; lon: number }
@@ -142,7 +137,7 @@ export async function buildPlan(sql: Sql, f: { id: string; name: string; lat: nu
   const sigma = skill.n >= 4 ? { tempF: Math.max(skill.fusedTempF * 1.25, 1), windMph: Math.max(skill.fusedWindMph * 1.25, 1) } : { tempF: 3, windMph: 2.5 }
 
   const block = BLOCKS.find(b => distanceM(b.lat, b.lon, f.lat, f.lon) < 300)
-  const sites = block ? [...block.sites, ...(await neighbours(sql, block))] : []
+  const sites = block ? [...block.sites, ...neighbours(block.id)] : []
   const planned = planHours({ ...f, sites, terrain, hours, nowMs, correction: estimate.correction, sigma, support: estimate.support })
   return {
     field: f, generatedMs: nowMs, jobMinutes, terrain, estimate, skill, sigma: { tempF: Math.round(sigma.tempF * 10) / 10, windMph: Math.round(sigma.windMph * 10) / 10 },
