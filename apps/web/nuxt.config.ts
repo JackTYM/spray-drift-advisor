@@ -11,7 +11,9 @@ export default defineNuxtConfig({
     cloudflare: { deployConfig: true, nodeCompat: true, wrangler: { name: 'drift-web' } },
   },
   runtimeConfig: {
-    public: { apiBase: 'http://localhost:8787', vapidPublicKey: '' },
+    public: { // Baked in at build time: this is a client-only app, so there is no server to read env at runtime.
+      apiBase: process.env.NUXT_PUBLIC_API_BASE || 'http://localhost:8787',
+      vapidPublicKey: process.env.NUXT_PUBLIC_VAPID_PUBLIC_KEY || '', },
   },
   app: {
     head: {
