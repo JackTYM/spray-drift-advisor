@@ -86,10 +86,28 @@ const allTabs: { id: TabId; label: string; advanced?: boolean }[] = [
 const tabs = computed(() => allTabs.filter(t => advanced.value || !t.advanced))
 watch(advanced, on => { if (!on && allTabs.find(t => t.id === tab.value)?.advanced) tab.value = 'route' })
 const volatile = ref(false)
+/** The guided demo sets what the page shows at each step. */
+function demoGo(step: { fieldId?: string; pickedMs?: number | null; stage?: 'map' | '3d' | 'side'; tab?: string; advanced?: boolean }) {
+  if (step.fieldId && step.fieldId !== fieldId.value) fieldId.value = step.fieldId
+  if (step.advanced !== undefined) advanced.value = step.advanced
+  // After the field change has cleared the previewed hour.
+  nextTick(() => {
+    if (step.pickedMs !== undefined) picked.value = step.pickedMs
+    if (step.stage) stage.value = step.stage
+    if (step.tab) tab.value = step.tab as TabId
+  })
+}
 const tower = computed(() => (plan.value ? towerModelFor(plan.value.terrain) : null))
 const used = computed(() => plan.value?.estimate.stations.filter(s => s.weight >= 0.01) ?? [])
 const signed = (n: number, unit = '') => `${n > 0 ? '+' : ''}${n}${unit}`
 const ft = (m: number) => Math.round(Math.abs(m) * 3.281)
+/** Age of the newest station reading, for the measured badge. */
+const newestReading = computed(() => {
+  const ts = (plan.value?.stations ?? []).map(s => s.timeMs).filter(t => Number.isFinite(t))
+  if (!ts.length) return 'station readings'
+  const mins = Math.max(0, Math.round((now.value - Math.max(...ts)) / 60_000))
+  return `station readings, newest ${mins} min old`
+})
 
 const adding = ref(false)
 function add(lat: number, lon: number) {
@@ -121,6 +139,7 @@ const askContext = computed(() => {
 
 <template>
   <main class="now">
+    <GuidedDemo :hours="plans['block-3']?.hours ?? []" @go="demoGo" />
     <div class="topline">
       <div class="blocktabs" role="tablist" aria-label="Fields, soonest window first">
         <button v-for="x in ordered" :key="x.f.id" role="tab" :aria-selected="x.f.id === fieldId" :class="[x.o.status ?? 'wait', { on: x.f.id === fieldId }]" @click="fieldId = x.f.id">
@@ -132,6 +151,8 @@ const askContext = computed(() => {
       <button class="presetbtn advbtn" :class="{ on: advanced }" :aria-pressed="advanced" @click="advanced = !advanced">{{ advanced ? 'Hide the working' : 'Advanced: show the working' }}</button>
       <div class="clock"><span class="muted">Fields are ordered by soonest window. {{ fmtStamp(now) }}</span></div>
     </div>
+
+    <p class="pitchline">Your weather station sees one point at one height. Stillair estimates the air over your field from every public station, says how sure it is, and finds the window your whole job fits in.</p>
 
     <div class="split">
       <aside class="decide">
@@ -159,6 +180,7 @@ const askContext = computed(() => {
             <div class="why">Every stretch of {{ minutes }} minutes in the next 48 hours has a hard stop in it: an inversion, wind over the limit, or wind toward buildings.</div>
           </template>
         </div>
+        <p v-if="plan" class="badgeline"><SourceBadge kind="estimated" :detail="`from ${plan.stations.length} stations and the forecast, ${fmtTime(plan.generatedMs)}`" /></p>
 
         <section v-if="plan">
           <PlanText :field="field" :job-minutes="minutes" />
@@ -187,6 +209,7 @@ const askContext = computed(() => {
 
         <section v-if="hour">
           <h2>{{ fmtWhen(hour.timeMs, now) }} at this field <span class="chip" :class="hour.status">{{ hour.status }}</span></h2>
+          <p class="badgeline" style="margin:0 0 6px"><SourceBadge kind="estimated" detail="5 ft and 30 ft, not a sensor on this field" /></p>
           <p class="hourline">
             <strong>{{ signed(hour.deltaF, '°F') }}</strong> from 5 ft to 30 ft ·
             wind <strong>{{ hour.lowWindMph }}</strong> mph at 5 ft, <strong>{{ hour.highWindMph }}</strong> at 30 ft, gusts <strong>{{ hour.gustMph }}</strong> ·
@@ -213,7 +236,7 @@ const askContext = computed(() => {
         <section class="card">
           <div class="cardhead">
             <h2>The next 48 hours at {{ field.name }}</h2>
-            <span v-if="plan" class="muted">Estimated {{ fmtTime(plan.generatedMs) }} from {{ plan.stations.length }} stations and the forecast model</span>
+            <SourceBadge v-if="plan" kind="estimated" :detail="`${fmtTime(plan.generatedMs)} from ${plan.stations.length} stations and the forecast model`" />
           </div>
           <PlanStrip v-if="plan" :hours="plan.hours" :windows="windows" :selected="hour?.timeMs ?? 0" @select="picked = $event" />
           <p v-else class="muted">{{ errors[field.id] ?? 'Loading the plan…' }}</p>
@@ -237,6 +260,7 @@ const askContext = computed(() => {
           <div v-else class="sidestage">
             <TowerScene :reading="hour?.reading ?? null" :delta-f="hourEval?.deltaF ?? 0" :ri="hourEval?.ri ?? 0" droplet="medium" :site="plan?.sites[0] ?? null" />
           </div>
+          <p v-if="stage !== 'map'" class="badgeline"><SourceBadge kind="estimated" detail="drift model, compares conditions, not a deposition forecast" /></p>
         </section>
 
         <section v-if="plan" class="card">
@@ -256,10 +280,11 @@ const askContext = computed(() => {
 
           <div v-else-if="tab === 'estimate'">
             <p class="mapfact" style="margin-top:0">
-              There is no weather station on this field. The forecast model alone says <strong>{{ plan.estimate.model.tempF }}°F</strong> and <strong>{{ plan.estimate.model.windMph }} mph</strong> here right now.
+              <SourceBadge kind="modelled" /> There is no weather station on this field. The forecast model alone says <strong>{{ plan.estimate.model.tempF }}°F</strong> and <strong>{{ plan.estimate.model.windMph }} mph</strong> here right now.
               <template v-if="used.length">Comparing the model with what {{ used.length }} nearby {{ used.length === 1 ? 'station measures' : 'stations measure' }} moves that to <strong>{{ plan.estimate.tempF }}°F</strong> and <strong>{{ plan.estimate.windMph }} mph</strong>.</template>
               <template v-else>No station is close enough to correct it, so the plan rests on the model and confidence is lowered.</template>
             </p>
+            <p class="badgeline" style="margin:0 0 8px"><SourceBadge kind="measured" :detail="newestReading" /> <SourceBadge kind="estimated" detail="the field result, worked out from the model and the stations" /></p>
             <div class="tablewrap">
               <table>
                 <thead><tr><th>Station</th><th>Network</th><th>Distance</th><th>Elevation vs field</th><th>Measured</th><th>Model was off by</th><th>Weight</th></tr></thead>
@@ -276,6 +301,7 @@ const askContext = computed(() => {
           </div>
 
           <div v-else-if="tab === 'micro'">
+            <p class="badgeline" style="margin:0 0 8px"><SourceBadge kind="modelled" detail="90 m terrain model" /></p>
             <p class="mapfact" style="margin-top:0">{{ plan.terrain.summary }}</p>
             <div class="facts">
               <div><span>Elevation</span>{{ Math.round(plan.terrain.elevM * 3.281).toLocaleString() }} ft</div>
