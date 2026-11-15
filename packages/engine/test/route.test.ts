@@ -52,6 +52,36 @@ describe('planRoute', () => {
     expect(plan.stops[1].travelMinutes).toBeCloseTo(expected, 0)
   })
 
+  it('cost rises with distance', () => {
+    const at = (lon: number) => planRoute([field('p', -112, 10, [win(0, 600, 900)]), field('q', lon, 10, [win(0, 600, 900)])], { nowMs: now })
+    const near = at(-112.05)
+    const far = at(-112.3)
+    expect(far.driveMiles).toBeGreaterThan(near.driveMiles)
+    expect(far.costUsd).toBeGreaterThan(near.costUsd)
+  })
+
+  it('a lower-confidence window costs more than a higher one', () => {
+    const conf = (c: number) => planRoute([field('p', -112, 10, [{ ...win(0, 600, 900), confidence: c }])], { nowMs: now })
+    expect(conf(0.4).costUsd).toBeGreaterThan(conf(0.9).costUsd)
+  })
+
+  it('the chosen order costs no more than list order when both do the same number of jobs', () => {
+    const list = [
+      field('far', -112.4, 20, [win(0, 900, 1200)]),
+      field('near', -112.0, 20, [win(0, 900, 1200)]),
+      field('mid', -112.2, 20, [win(0, 900, 1200)]),
+    ]
+    const plan = planRoute(list, { nowMs: now })
+    expect(plan.listOrder.done).toBe(plan.done)
+    expect(plan.costUsd).toBeLessThanOrEqual(plan.listOrder.costUsd)
+  })
+
+  it('uses the given costs', () => {
+    const f = [field('p', -112, 10, [win(0, 600, 900)]), field('q', -112.2, 10, [win(0, 600, 900)])]
+    const a = planRoute(f, { nowMs: now, costs: { crewPerHourUsd: 100, fuelPerMileUsd: 0, wastedTripUsd: 0 } })
+    expect(a.costUsd).toBe(Math.round((a.driveMinutes / 60) * 100))
+  })
+
   it('handles more than seven fields', () => {
     const many = Array.from({ length: 9 }, (_, i) => field(`f${i}`, -112 - i * 0.02, 20, [win(0, 900, 1200)]))
     expect(planRoute(many, { nowMs: now }).done).toBe(9)

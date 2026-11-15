@@ -18,7 +18,8 @@ export interface RouteStop {
   waitMinutes: number
   confidence: number
 }
-export interface RouteSummary { done: number; finishMs: number | null; driveMinutes: number; waitMinutes: number }
+export interface RouteCosts { crewPerHourUsd: number; fuelPerMileUsd: number; wastedTripUsd: number }
+export interface RouteSummary { done: number; finishMs: number | null; driveMinutes: number; waitMinutes: number; driveMiles: number; costUsd: number }
 export interface RoutePlan extends RouteSummary {
   stops: RouteStop[]
   deferred: { id: string; name: string; reason: string }[]
@@ -34,7 +35,7 @@ interface Sim extends RouteSummary {
   deferred: { id: string; name: string; reason: string }[]
 }
 
-function simulate(order: RouteField[], nowMs: number, travel: (a: { lat: number; lon: number } | null, b: RouteField) => number, from?: { lat: number; lon: number }): Sim {
+function simulate(order: RouteField[], nowMs: number, travel: (a: { lat: number; lon: number } | null, b: RouteField) => number, speedMph: number, costs: RouteCosts, from?: { lat: number; lon: number }): Sim {
   const stops: RouteStop[] = []
   const deferred: Sim['deferred'] = []
   let pos: { lat: number; lon: number } | null = from ?? null
@@ -61,16 +62,23 @@ function simulate(order: RouteField[], nowMs: number, travel: (a: { lat: number;
     clock = finish
     pos = { lat: f.lat, lon: f.lon }
   }
-  return { stops, deferred, done: stops.length, finishMs: stops.length ? clock : null, driveMinutes: drive, waitMinutes: wait }
+  const miles = (drive / 60) * speedMph
+  const cost =
+    (drive / 60) * costs.crewPerHourUsd +
+    miles * costs.fuelPerMileUsd +
+    (wait / 60) * costs.crewPerHourUsd +
+    stops.reduce((a, s) => a + (1 - s.confidence) * costs.wastedTripUsd, 0) +
+    deferred.length * 0.25 * costs.wastedTripUsd
+  return { stops, deferred, done: stops.length, finishMs: stops.length ? clock : null, driveMinutes: drive, waitMinutes: wait, driveMiles: miles, costUsd: cost }
 }
 
 function better(a: Sim, b: Sim | null): boolean {
   if (!b) return true
   if (a.done !== b.done) return a.done > b.done
+  if (a.costUsd !== b.costUsd) return a.costUsd < b.costUsd
   const fa = a.finishMs ?? Infinity
   const fb = b.finishMs ?? Infinity
-  if (fa !== fb) return fa < fb
-  return a.driveMinutes < b.driveMinutes
+  return fa < fb
 }
 
 function* permutations<T>(items: T[]): Generator<T[]> {
@@ -84,12 +92,20 @@ function* permutations<T>(items: T[]): Generator<T[]> {
   }
 }
 
-const summary = (s: Sim): RouteSummary => ({ done: s.done, finishMs: s.finishMs, driveMinutes: s.driveMinutes, waitMinutes: s.waitMinutes })
+const summary = (s: Sim): RouteSummary => ({
+  done: s.done,
+  finishMs: s.finishMs,
+  driveMinutes: s.driveMinutes,
+  waitMinutes: s.waitMinutes,
+  driveMiles: Math.round(s.driveMiles * 10) / 10,
+  costUsd: Math.round(s.costUsd),
+})
 
 export function planRoute(
   fields: RouteField[],
-  opts: { nowMs: number; speedMph?: number; roadFactor?: number; from?: { lat: number; lon: number } },
+  opts: { nowMs: number; speedMph?: number; roadFactor?: number; from?: { lat: number; lon: number }; costs?: RouteCosts },
 ): RoutePlan {
+  const costs: RouteCosts = { crewPerHourUsd: 250, fuelPerMileUsd: 0.6, wastedTripUsd: 400, ...opts.costs }
   const speedMph = opts.speedMph && opts.speedMph > 0 ? opts.speedMph : 35
   const roadFactor = opts.roadFactor ?? 1.3
   const travel = (a: { lat: number; lon: number } | null, b: RouteField) => {
@@ -97,7 +113,7 @@ export function planRoute(
     const miles = (distanceM(a.lat, a.lon, b.lat, b.lon) / 1609.344) * roadFactor
     return (miles / speedMph) * 60
   }
-  const run = (order: RouteField[]) => simulate(order, opts.nowMs, travel, opts.from)
+  const run = (order: RouteField[]) => simulate(order, opts.nowMs, travel, speedMph, costs, opts.from)
   const listSim = run(fields)
 
   let best: Sim | null = null
