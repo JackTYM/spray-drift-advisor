@@ -30,7 +30,15 @@ export const BLOCKS: BlockModel[] = [
     sites: [{ name: 'the homes on Sahuarita Road', type: 'homes', bearingDeg: 5, distanceM: 156 }] }),
 ]
 
-export const PRODUCTS = [
-  { name: 'Example product A (low volatility)', volatility: 'low' as const },
-  { name: 'Example product B (high volatility)', volatility: 'high' as const },
+/**
+ * Real products with their EPA registration numbers and the label PDFs EPA publishes.
+ * Names and numbers were checked against those labels on 2026-11-15. Volatility is "low" where the
+ * label carries no vapor-drift warning. Limits are not stored here: they come from reading the label.
+ */
+export interface Product { name: string; volatility: 'low' | 'high'; epaRegNo: string; activeIngredient: string; labelUrl: string }
+const EPA_LABELS = 'https://www3.epa.gov/pesticides/chem_search/ppls/'
+export const PRODUCTS: Product[] = [
+  { name: 'Closer SC', volatility: 'low', epaRegNo: '62719-623', activeIngredient: 'Sulfoxaflor 21.8%', labelUrl: `${EPA_LABELS}062719-00623-20210108.pdf` },
+  { name: 'Intrepid 2F', volatility: 'low', epaRegNo: '62719-442', activeIngredient: 'Methoxyfenozide 22.6%', labelUrl: `${EPA_LABELS}062719-00442-20221012.pdf` },
+  { name: 'Warrior II with Zeon Technology', volatility: 'low', epaRegNo: '100-1295', activeIngredient: 'Lambda-cyhalothrin 22.8%', labelUrl: `${EPA_LABELS}000100-01295-20250703.pdf` },
 ]

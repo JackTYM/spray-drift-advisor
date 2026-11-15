@@ -239,7 +239,21 @@ app.post('/api/ask', async c => {
 
 const LABEL_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf']
 app.post('/api/label', async c => {
-  const body = await c.req.json<{ data?: string; mediaType?: string }>().catch(() => null)
+  const body = await c.req.json<{ data?: string; mediaType?: string; url?: string }>().catch(() => null)
+  // A label can also be fetched straight from EPA's published label PDFs, and from nowhere else.
+  if (body?.url) {
+    const url = new URL(body.url, 'https://invalid.example')
+    if (url.protocol !== 'https:' || url.hostname !== 'www3.epa.gov' || !url.pathname.startsWith('/pesticides/chem_search/ppls/') || !url.pathname.endsWith('.pdf')) {
+      return c.json({ error: 'Only label PDFs published by EPA can be fetched by address.' }, 400)
+    }
+    const res = await fetch(url, { signal: AbortSignal.timeout(20_000) }).catch(() => null)
+    if (!res?.ok) return c.json({ error: 'The label could not be downloaded from EPA. Upload the PDF instead.' }, 502)
+    const bytes = new Uint8Array(await res.arrayBuffer())
+    let binary = ''
+    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+    body.data = btoa(binary)
+    body.mediaType = 'application/pdf'
+  }
   if (!body?.data || !body.mediaType || !LABEL_TYPES.includes(body.mediaType)) return c.json({ error: 'Send a photo (JPEG, PNG or WebP) or a PDF of the label.' }, 400)
   if (body.data.length > 12_000_000) return c.json({ error: 'That file is too large. Use a smaller photo or a PDF under 8 MB.' }, 400)
   try {

@@ -22,11 +22,12 @@ export const LabelSchema = z.object({
   productName: z.string().nullable().describe('Product name as printed on the label'),
   epaRegNo: z.string().nullable().describe('EPA registration number'),
   activeIngredients: z.array(z.string()),
-  windMinMph: z.number().nullable().describe('Minimum wind speed for application, mph, if the label gives one'),
-  windMaxMph: z.number().nullable().describe('Maximum wind speed for application, mph, if the label gives one'),
+  labeledForPecans: z.boolean().nullable().describe('True if the label lists pecans, or a crop group that includes them such as tree nuts, as a use site; false if it clearly does not; null if the pages provided do not show the crop list'),
+  windMinMph: z.number().nullable().describe('Minimum wind speed for airblast or other ground application, mph, if the label gives one'),
+  windMaxMph: z.number().nullable().describe('Maximum wind speed for airblast or other ground application, mph, if the label gives one'),
   inversionProhibited: z.boolean().nullable().describe('True if the label prohibits application during a temperature inversion'),
-  dropletSize: z.enum(['fine', 'medium', 'coarse']).nullable().describe('Required or recommended droplet size class, mapped to the nearest of fine, medium, coarse'),
-  bufferFt: z.number().nullable().describe('Largest buffer or setback distance from sensitive areas, in feet'),
+  dropletSize: z.enum(['fine', 'medium', 'coarse']).nullable().describe('Required or recommended droplet size class for ground application, mapped to the nearest of fine, medium, coarse'),
+  bufferFt: z.number().nullable().describe('Buffer or setback distance from sensitive areas that applies to airblast or other ground application, in feet'),
   volatility: z.enum(['low', 'high']).nullable().describe('high if the label warns about vapor drift or volatility, low if it does not'),
   evidence: z.array(z.object({ field: z.string(), quote: z.string() })).describe('For each non-null field above, the exact label sentence it came from'),
   notes: z.string().describe('One or two sentences on anything spray-drift related that the fields do not capture, or an empty string'),
@@ -36,6 +37,8 @@ export type LabelReading = z.infer<typeof LabelSchema>
 const LABEL_SYSTEM = `You read pesticide product labels for Stillair, a tool that helps applicators decide whether weather conditions are safe for spraying an orchard.
 
 The applicator will photograph or upload a label and then confirm what you extracted before it is used, so your job is to pull out the spray-drift terms accurately and show where each came from. The label is the legal authority: a value you invent or guess could lead someone to spray when the label forbids it. When the label does not state something, return null for that field instead of a typical value. Convert units to mph and feet. For every field you fill in, add an evidence entry quoting the label sentence word for word, so the applicator can check it against the paper label.
+
+The orchard is pecans and is sprayed from the ground with an airblast sprayer, so the limits that matter are the ones for airblast application. Labels often state wind limits, droplet sizes and buffers separately for aerial, ground-boom and airblast application. Prefer the airblast value; if the label gives none for airblast, use the general or ground-boom value and say in notes which application method it was written for. Do not report an aerial-only value as the limit: mention it in notes instead, because a buffer written for aircraft would mislead someone driving a sprayer.
 
 If the image is not a pesticide label or is unreadable, return null fields and say so in notes.`
 

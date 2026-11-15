@@ -1,13 +1,15 @@
 <script setup lang="ts">
+import { PRODUCTS } from '@drift/engine'
+
 export interface LabelReading {
-  productName: string | null; epaRegNo: string | null; activeIngredients: string[]
+  productName: string | null; epaRegNo: string | null; activeIngredients: string[]; labeledForPecans: boolean | null
   windMinMph: number | null; windMaxMph: number | null; inversionProhibited: boolean | null
   dropletSize: 'fine' | 'medium' | 'coarse' | null; bufferFt: number | null; volatility: 'low' | 'high' | null
   evidence: { field: string; quote: string }[]; notes: string
 }
 const emit = defineEmits<{ use: [label: LabelReading] }>()
 const api = useRuntimeConfig().public.apiBase as string
-const busy = ref(false)
+const busy = ref('')
 const error = ref('')
 const label = ref<LabelReading | null>(null)
 
@@ -16,7 +18,8 @@ const rows = computed(() => {
   if (!l) return []
   const quote = (...keys: string[]) => l.evidence.find(e => keys.some(k => e.field.toLowerCase().includes(k)))?.quote
   return [
-    { name: 'Product', value: l.productName, quote: quote('product') },
+    { name: 'Product', value: [l.productName, l.epaRegNo ? `EPA Reg. No. ${l.epaRegNo}` : null].filter(Boolean).join(', ') || null, quote: quote('product') },
+    { name: 'Labelled for pecans', value: l.labeledForPecans === null ? null : l.labeledForPecans ? 'Yes' : 'No: pecans are not listed on this label', quote: quote('pecan') },
     { name: 'Minimum wind', value: l.windMinMph === null ? null : `${l.windMinMph} mph`, quote: quote('windmin', 'minimum wind', 'wind min') },
     { name: 'Maximum wind', value: l.windMaxMph === null ? null : `${l.windMaxMph} mph`, quote: quote('windmax', 'maximum wind', 'wind max') },
     { name: 'Inversions', value: l.inversionProhibited === null ? null : l.inversionProhibited ? 'Do not apply during an inversion' : 'No prohibition found', quote: quote('inversion') },
@@ -42,28 +45,37 @@ async function toBase64(file: File): Promise<{ data: string; mediaType: string }
   return { data: canvas.toDataURL('image/jpeg', 0.88).split(',')[1]!, mediaType: 'image/jpeg' }
 }
 
-async function onFile(e: Event) {
-  const file = (e.target as HTMLInputElement).files?.[0]
-  if (!file) return
-  busy.value = true; error.value = ''; label.value = null
+async function read(what: string, body: () => Promise<object> | object) {
+  busy.value = what; error.value = ''; label.value = null
   try {
-    const r = await $fetch<{ label?: LabelReading; error?: string }>(`${api}/api/label`, { method: 'POST', body: await toBase64(file) })
+    const r = await $fetch<{ label?: LabelReading; error?: string }>(`${api}/api/label`, { method: 'POST', body: await body() })
     if (r.label) label.value = r.label
     else error.value = r.error ?? 'The label could not be read. Enter the limits by hand.'
   } catch (err: any) {
     error.value = err?.data?.error ?? 'The label could not be read. Enter the limits by hand.'
   } finally {
-    busy.value = false
+    busy.value = ''
   }
+}
+function onFile(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (file) read('your label', () => toBase64(file))
 }
 </script>
 
 <template>
   <div class="labelreader">
     <label class="btn secondary filebtn">
-      {{ busy ? 'Reading the label…' : 'Read the product label' }}
-      <input type="file" accept="image/*,application/pdf" capture="environment" :disabled="busy" @change="onFile">
+      {{ busy ? `Reading ${busy}… about 20 seconds` : 'Read a product label (photo or PDF)' }}
+      <input type="file" accept="image/*,application/pdf" :disabled="!!busy" @change="onFile">
     </label>
+    <div class="samples">
+      <span class="muted">Or try a real label from EPA:</span>
+      <template v-for="p in PRODUCTS" :key="p.name">
+        <button class="linkbtn" style="margin:0" :disabled="!!busy" @click="read(`the ${p.name} label`, () => ({ url: p.labelUrl }))">{{ p.name }}</button>
+        <a :href="p.labelUrl" target="_blank" rel="noopener" class="muted" :aria-label="`Download the ${p.name} label PDF`">PDF</a>
+      </template>
+    </div>
     <div v-if="error" class="error" role="alert">{{ error }}</div>
     <div v-if="label" class="labelresult">
       <div v-for="r in rows" :key="r.name" class="labelrow">

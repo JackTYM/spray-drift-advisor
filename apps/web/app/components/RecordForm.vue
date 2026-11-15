@@ -16,7 +16,14 @@ const f = reactive({
   applicatorName: '', licenseNo: '', epaRegNo: '', activeIngredient: '', ratePerAcre: '', targetPest: '', reiHours: null as number | null,
   sensitiveAreasChecked: false, holdReason: '',
 })
+/** Choosing a listed product fills in its registration number and active ingredient. */
+function applyProduct(name: string) {
+  const p = PRODUCTS.find(x => x.name === name)
+  if (p) { f.epaRegNo = p.epaRegNo; f.activeIngredient = p.activeIngredient; f.volatility = p.volatility }
+}
+watch(() => f.product, applyProduct)
 onMounted(() => {
+  applyProduct(f.product)
   try { Object.assign(f, JSON.parse(localStorage.getItem('applicator') ?? '{}')) } catch { /* nothing saved */ }
 })
 

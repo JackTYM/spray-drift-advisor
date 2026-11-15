@@ -10,8 +10,17 @@ const ev = computed(() => block.value?.evaluation ?? null)
 const bufferM = useBufferM()
 const session = computed(() => snap.value?.sessions.find(s => s.blockId === blockId.value && s.phase !== 'closed') ?? null)
 
-const job = reactive<Job>({ product: PRODUCTS[0].name, volatility: PRODUCTS[0].volatility, droplet: 'medium' })
-watch(() => job.product, p => { job.volatility = products.value.find(x => x.name === p)?.volatility ?? job.volatility })
+const job = reactive<Job>({ product: PRODUCTS[0]!.name, volatility: PRODUCTS[0]!.volatility, droplet: 'medium' })
+/** Choosing a listed product fills in its registration number and active ingredient for the record. */
+function applyProduct(name: string) {
+  const p = products.value.find(x => x.name === name)
+  if (!p) return
+  job.volatility = p.volatility
+  if (p.epaRegNo) details.epaRegNo = p.epaRegNo
+  if (p.activeIngredient) details.activeIngredient = p.activeIngredient
+}
+watch(() => job.product, applyProduct)
+onMounted(() => applyProduct(job.product))
 const labelMin = ref<number | null>(null)
 const labelMax = ref<number | null>(null)
 const overrideReason = ref('')
@@ -24,11 +33,11 @@ onMounted(() => {
 watch(() => [details.applicatorName, details.licenseNo], () => {
   try { localStorage.setItem('applicator', JSON.stringify({ applicatorName: details.applicatorName, licenseNo: details.licenseNo })) } catch { /* storage unavailable */ }
 })
-const products = ref(PRODUCTS.map(p => ({ ...p })))
+const products = ref<{ name: string; volatility: 'low' | 'high'; epaRegNo?: string; activeIngredient?: string }[]>(PRODUCTS.map(p => ({ ...p })))
 /** Fills the job form from a label the applicator has checked. */
 function useLabel(l: LabelReading) {
   if (l.productName) {
-    if (!products.value.some(p => p.name === l.productName)) products.value.push({ name: l.productName, volatility: l.volatility ?? 'low' })
+    if (!products.value.some(p => p.name === l.productName)) products.value.push({ name: l.productName, volatility: l.volatility ?? 'low', epaRegNo: l.epaRegNo ?? undefined, activeIngredient: l.activeIngredients.join(', ') || undefined })
     job.product = l.productName
   }
   if (l.volatility) job.volatility = l.volatility
