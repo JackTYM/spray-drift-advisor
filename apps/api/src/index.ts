@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import Anthropic from '@anthropic-ai/sdk'
-import { BLOCKS, EXAMPLE_COST_PER_ACRE, RANCH, areaAcres, compassOf, ends, localOutline, sprayEconomics, type Conditions, type SessionState, parseReading, readingsFromCsv, summarize, type CsvMapping, type Snapshot } from '@drift/engine'
+import { BLOCKS, planRoute, EXAMPLE_COST_PER_ACRE, RANCH, areaAcres, compassOf, ends, localOutline, sprayEconomics, type Conditions, type SessionState, parseReading, readingsFromCsv, summarize, type CsvMapping, type Snapshot } from '@drift/engine'
 import { ask, readLabel } from './ai'
 import { alertPhones, sendLinq } from './alerter'
 import { evaluationNear, insertAlert, upsertSession, sessionStats, alertRows, db, insertRecorded, latestBacktest, logRows, saveSubscription, sessionById, sessionRows } from './db'
@@ -250,7 +250,12 @@ async function snapshotText(env: Env): Promise<string> {
   for (const p of plans) {
     if (!p || 'error' in p) continue
     lines.push(`  ${planText(p.field.name, 45, p.windows[0] ?? null, Date.now())}`)
-
+  }
+  // The route across the ranch's blocks, so a text can ask what order to do them in.
+  const routable = plans.flatMap(p => (p && !('error' in p) ? [{ id: p.field.id, name: p.field.name, lat: p.field.lat, lon: p.field.lon, jobMinutes: 45, windows: p.windows }] : []))
+  if (routable.length) {
+    const r = planRoute(routable, { nowMs: Date.now() })
+    lines.push('', `Suggested order across the blocks: ${r.stops.map((x, i) => `${i + 1}. ${x.name}, start ${clock.format(new Date(x.startMs))}, finish ${clock.format(new Date(x.finishMs))}, confidence ${Math.round(x.confidence * 100)}%`).join('; ') || 'no job fits a window'}.${r.deferred.length ? ` Put off: ${r.deferred.map(d => `${d.name} (${d.reason})`).join('; ')}.` : ''} Use this when asked which field to do first or how to plan the night.`)
   }
   const open = s.sessions.filter(x => x.phase !== 'closed')
   lines.push('', open.length

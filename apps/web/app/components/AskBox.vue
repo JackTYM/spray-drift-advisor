@@ -1,10 +1,10 @@
 <script setup lang="ts">
-const props = defineProps<{ context?: string }>()
+const props = defineProps<{ context?: string; examples?: string[] }>()
 const api = useRuntimeConfig().public.apiBase as string
 const question = ref('')
 const busy = ref(false)
 const turns = ref<{ q: string; a: string; failed?: boolean }[]>([])
-const examples = ['What would it cost me to spray now?', 'When is the best time to spray?', '¿Por qué no puedo fumigar?']
+const examples = computed(() => props.examples ?? ['What would it cost me to spray now?', 'When is the best time to spray?', '¿Por qué no puedo fumigar?'])
 
 async function send(text = question.value) {
   const q = text.trim()

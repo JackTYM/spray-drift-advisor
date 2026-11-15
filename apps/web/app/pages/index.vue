@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BLOCKS, breakTime, confidenceWord, evaluate, squareOutline, toLngLat, towerModelFor, type BlockSnapshot, type RouteField, type Status, type Surroundings } from '@drift/engine'
+import { BLOCKS, planRoute, breakTime, confidenceWord, evaluate, squareOutline, toLngLat, towerModelFor, type BlockSnapshot, type RouteField, type Status, type Surroundings } from '@drift/engine'
 
 const { example, setExample, bestChance, jobFor, fields, plans, errors, minutesFor, windowsFor, addField, removeField, PRESET_FIELDS } = usePlans()
 /** Windows start on 15 minute steps, so one that starts within a step of now is open. */
@@ -114,6 +114,18 @@ function remove() {
   removeField(id)
 }
 
+/** The route across every field on the page, in words, so the assistant can plan the night with the user. */
+const routeText = computed(() => {
+  if (!routeFields.value.length) return ''
+  const r = planRoute(routeFields.value, { nowMs: now.value })
+  const each = routeFields.value.map(f => `${f.name} (${f.lat.toFixed(3)}, ${f.lon.toFixed(3)}; job ${f.jobMinutes} min; windows: ${f.windows.slice(0, 3).map(w => `${fmtWhen(w.startMs, now.value)} to ${fmtWhen(w.endMs, now.value)}, start by ${fmtWhen(w.latestStartMs, now.value)}, ${pct(w.confidence)}`).join(' | ') || 'none'})`)
+  return [
+    `Route planning across the user's fields. Each field: ${each.join('; ')}.`,
+    r.stops.length ? `Stillair's suggested order: ${r.stops.map((s, i) => `${i + 1}. ${s.name}: ${s.travelMinutes >= 1 ? `drive ${Math.round(s.travelMinutes)} min, ` : ''}start ${fmtWhen(s.startMs, now.value)}, finish ${fmtWhen(s.finishMs, now.value)}, confidence ${pct(s.confidence)}`).join('; ')}.` : 'No job fits a window, so there is no route to suggest.',
+    r.deferred.length ? `Put off: ${r.deferred.map(d => `${d.name} (${d.reason})`).join('; ')}.` : '',
+    `Expected cost of that plan about $${r.costUsd} with ${r.driveMiles} road miles (example rates: crew $250 an hour, fuel $0.60 a mile, wasted trip $400; drive time is straight-line distance x 1.3 at 35 mph). In list order it would be $${r.listOrder.costUsd} and ${r.listOrder.done} jobs done. When the user asks about order, timing or which field to drop, reason from these windows and this route; say which jobs are tight and why.`,
+  ].filter(Boolean).join('\n')
+})
 /** What is on screen, in words, so the assistant answers from the same plan. */
 const askContext = computed(() => {
   const p = plan.value
@@ -123,6 +135,7 @@ const askContext = computed(() => {
     `The user is planning ahead for ${field.value.name} (${field.value.lat}, ${field.value.lon}); the job takes ${minutes.value} minutes and will not be stopped once started.`,
     w ? `Next spray window: ${fmtWhen(w.startMs, now.value)} to ${fmtWhen(w.endMs, now.value)}; the job must start by ${fmtWhen(w.latestStartMs, now.value)}. Confidence ${pct(w.confidence)} (${confidenceWord(w.confidence)}).` : `No window of ${minutes.value} minutes in the next 48 hours meets every limit with at least 50% confidence.`,
     `All fields, soonest first: ${ordered.value.map(x => `${x.f.name} ${x.o.state}`).join('; ')}.`,
+    routeText.value,
     `Microclimate: ${p.terrain.summary}`,
     `Field estimate now: ${p.estimate.tempF}°F, wind ${p.estimate.windMph} mph (weather model alone: ${p.estimate.model.tempF}°F, ${p.estimate.model.windMph} mph), corrected with ${used.value.length} stations; nearest ${used.value[0]?.name ?? 'none'} at ${used.value[0]?.distanceKm ?? '?'} km. Station coverage ${pct(p.estimate.support)}.`,
     `Accuracy test now across ${p.skill.n} stations (each hidden in turn): estimate off by ${p.skill.fusedTempF}°F and ${p.skill.fusedWindMph} mph on average; model alone ${p.skill.modelTempF}°F and ${p.skill.modelWindMph} mph. Confidence is derived from this error and grows less sure with hours ahead; it is not a validated probability.`,
@@ -226,7 +239,7 @@ const askContext = computed(() => {
 
         <section>
           <h2>Ask Stillair</h2>
-          <AskBox :context="askContext" />
+          <AskBox :context="askContext" :examples="['What order should I do my fields in tonight?', 'When is the best time to spray this field?', '¿Qué campo debo dejar para mañana?']" />
         </section>
       </aside>
 
