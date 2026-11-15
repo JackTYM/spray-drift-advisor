@@ -45,6 +45,9 @@ export class RanchDO extends DurableObject<Env> {
   private s!: State
   private rand = mulberry32(42)
   private sql = db(this.env)
+  private sitesTriedMs = 0
+  /** Last time a client asked for data; ticking continues for a minute after. */
+  private seenMs = 0
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -97,6 +100,16 @@ export class RanchDO extends DurableObject<Env> {
 
   private openSession = (blockId: string) => this.s.sessions.find(x => x.blockId === blockId && x.phase !== 'closed')
 
+  /** Overpass is slow and sometimes down, so sites load in the background and never hold up a tick. */
+  private loadSites() {
+    const blocks = this.s.blocks
+    if (Date.now() - this.sitesTriedMs < 5 * 60_000 || BLOCKS.every(b => blocks[b.id].sites !== null)) return
+    this.sitesTriedMs = Date.now()
+    this.ctx.waitUntil((async () => {
+      for (const b of BLOCKS) if (blocks[b.id].sites === null) blocks[b.id].sites = await blockSites(this.sql, b)
+    })())
+  }
+
   // ---------- tick ----------
 
   async alarm() {
@@ -112,12 +125,7 @@ export class RanchDO extends DurableObject<Env> {
     } else {
       d.simMs += d.stepMin * 60_000
     }
-    if (d.mode !== 'scenario') {
-      for (const b of BLOCKS) {
-        const bs = this.s.blocks[b.id]
-        if (bs.sites === null) bs.sites = await blockSites(this.sql, b)
-      }
-    }
+    if (d.mode !== 'scenario') this.loadSites()
 
     const now = this.now()
     const sc = d.mode === 'scenario' ? scenarioById(d.scenarioId) : null
@@ -135,7 +143,7 @@ export class RanchDO extends DurableObject<Env> {
 
     await this.save()
     this.broadcast()
-    const watching = this.ctx.getWebSockets().length > 0 || this.s.sessions.some(x => x.phase !== 'closed')
+    const watching = this.ctx.getWebSockets().length > 0 || this.s.sessions.some(x => x.phase !== 'closed') || Date.now() - this.seenMs < 60_000
     if (watching) await this.ctx.storage.setAlarm(Date.now() + (d.mode === 'live' ? LIVE_TICK_MS : DEMO_TICK_MS))
   }
 
@@ -199,6 +207,7 @@ export class RanchDO extends DurableObject<Env> {
   }
 
   async getSnapshot(): Promise<Snapshot> {
+    this.seenMs = Date.now()
     await this.wake()
     return this.snapshot()
   }
@@ -250,6 +259,7 @@ export class RanchDO extends DurableObject<Env> {
     }
     if (d.reset) await resetLog(this.sql)
     await this.save()
+    this.seenMs = Date.now()
     await this.ctx.storage.setAlarm(Date.now() + 100)
     this.broadcast()
     return this.snapshot()

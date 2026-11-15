@@ -9,7 +9,7 @@ const HEADERS = { 'User-Agent': 'spray-drift-advisor-demo', Accept: 'application
 /** Fetches JSON and caches it; falls back to the cached copy when the source is down. */
 async function fetchCached(sql: Sql, key: string, url: string, init?: RequestInit): Promise<any> {
   try {
-    const res = await fetch(url, { ...init, headers: { ...HEADERS, ...(init?.headers ?? {}) } })
+    const res = await fetch(url, { ...init, signal: AbortSignal.timeout(8000), headers: { ...HEADERS, ...(init?.headers ?? {}) } })
     if (!res.ok) throw new Error(`${res.status} from ${url}`)
     const json = await res.json()
     await cachePut(sql, key, json)
@@ -40,11 +40,12 @@ export async function historyGround(sql: Sql, date: string): Promise<GroundObs[]
   return rows.map(r => groundFromAzmet(r, RANCH.groundStation)).filter((g): g is GroundObs => g !== null).sort((a, b) => a.timeMs - b.timeMs)
 }
 
-export async function blockSites(sql: Sql, block: BlockModel): Promise<SensitiveSite[]> {
+/** Returns null when Overpass is unreachable and nothing is cached, so the caller can retry later. */
+export async function blockSites(sql: Sql, block: BlockModel): Promise<SensitiveSite[] | null> {
   const json = await fetchCached(sql, `sites:${block.id}`, 'https://overpass-api.de/api/interpreter', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: `data=${encodeURIComponent(overpassQuery(block.lat, block.lon, 1500))}`,
   })
-  return sitesFromOverpass(json, block.lat, block.lon, 1500)
+  return json ? sitesFromOverpass(json, block.lat, block.lon, 1500) : null
 }
