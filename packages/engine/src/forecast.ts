@@ -1,6 +1,6 @@
 import { evaluate } from './evaluate'
 import { interpolate, virtualTower, type Anchor, type BlockModel } from './tower'
-import type { Job, SafeWindow, SensitiveSite, Status } from './types'
+import type { Job, Reading, SafeWindow, SensitiveSite, Status } from './types'
 
 const HOUR = 3_600_000
 const HALF = 1_800_000
@@ -12,6 +12,18 @@ export const inversionLikely = (a: Anchor): boolean => !a.isDay && a.cloudPct < 
 export function statusAt(block: BlockModel, anchors: Anchor[], tMs: number, job?: Job, sites: SensitiveSite[] = block.sites): Status {
   const reading = virtualTower(block, interpolate(anchors, tMs), () => 0.5, false)
   return evaluate({ history: [reading], nowMs: tMs, job, sites, inversionLikely: inversionLikely(interpolate(anchors, tMs + HOUR)) }).status
+}
+
+/** Forecast in half-hour steps with the modelled tower reading for each step. */
+export function forecastReadings(block: BlockModel, anchors: Anchor[], nowMs: number, hours = 24, job?: Job, sites: SensitiveSite[] = block.sites): { timeMs: number; status: Status; reading: Reading }[] {
+  const start = Math.ceil(nowMs / HALF) * HALF
+  const out: { timeMs: number; status: Status; reading: Reading }[] = []
+  for (let t = start; t < start + hours * HOUR; t += HALF) {
+    const reading = virtualTower(block, interpolate(anchors, t), () => 0.5, false)
+    const status = evaluate({ history: [reading], nowMs: t, job, sites, inversionLikely: inversionLikely(interpolate(anchors, t + HOUR)) }).status
+    out.push({ timeMs: t, status, reading })
+  }
+  return out
 }
 
 export function forecastStrip(block: BlockModel, anchors: Anchor[], nowMs: number, hours = 24, job?: Job, sites?: SensitiveSite[]): { timeMs: number; status: Status }[] {

@@ -6,6 +6,8 @@ export default defineNuxtConfig({
   typescript: { tsConfig: { compilerOptions: { noUncheckedIndexedAccess: false } } },
   css: ['~/assets/main.css'],
   build: { transpile: ['@drift/engine'] },
+  // maplibre-gl loads its own worker module; pre-bundling it breaks that URL in dev.
+  vite: { optimizeDeps: { exclude: ['maplibre-gl'] } },
   nitro: {
     preset: 'cloudflare_module',
     cloudflare: { deployConfig: true, nodeCompat: true, wrangler: { name: 'drift-web' } },

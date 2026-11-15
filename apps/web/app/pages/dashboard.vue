@@ -9,6 +9,8 @@ const sessions = ref<any[]>([])
 const alerts = ref<any[]>([])
 const backtest = ref<any>(null)
 const surroundings = useSurroundings(selected)
+const mapMode = ref<'3d' | 'map'>('3d')
+const session = computed(() => snap.value?.sessions.find(s => s.blockId === selected.value && s.phase !== 'closed') ?? null)
 const block = computed(() => snap.value?.blocks.find(b => b.id === selected.value) ?? null)
 const marks = computed(() => (snap.value?.demo.mode === 'scenario' ? scenarioById(snap.value.demo.scenarioId).marks : []))
 const jump = (min: number) => $fetch(`${api}/api/demo`, { method: 'POST', body: { seekMin: min } }).then(refresh)
@@ -55,8 +57,15 @@ const levels = (row: any) => (row.levels ?? []).map((l: any) => `${l.heightFt} f
 
     <div class="grid2">
       <section class="card">
-        <h2>What is downwind of {{ blockName(selected) }}</h2>
-        <BlockMap :blocks="snap?.blocks ?? []" :selected="selected" :surroundings="surroundings" @select="selected = $event" />
+        <div class="cardhead">
+          <h2>What is downwind of {{ blockName(selected) }}</h2>
+          <div class="seg" role="group" aria-label="View">
+            <button :class="{ on: mapMode === '3d' }" @click="mapMode = '3d'">3D</button>
+            <button :class="{ on: mapMode === 'map' }" @click="mapMode = 'map'">Map</button>
+          </div>
+        </div>
+        <Drift3D v-if="mapMode === '3d'" :blocks="snap?.blocks ?? []" :selected="selected" :surroundings="surroundings" :droplet="session?.job.droplet ?? 'fine'" />
+        <BlockMap v-else :blocks="snap?.blocks ?? []" :selected="selected" :surroundings="surroundings" @select="selected = $event" />
       </section>
       <div>
         <section class="card">
@@ -74,6 +83,11 @@ const levels = (row: any) => (row.levels ?? []).map((l: any) => `${l.heightFt} f
       </section>
       </div>
     </div>
+
+    <section class="card">
+      <h2>Best hours to spray {{ blockName(selected) }}</h2>
+      <WindowRanking :forecast="history.forecast" :surroundings="surroundings" :droplet="session?.job.droplet ?? 'fine'" />
+    </section>
 
     <section class="card">
       <h2>One ground station compared with two heights</h2>

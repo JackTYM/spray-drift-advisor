@@ -6,10 +6,16 @@ const props = defineProps<{ history: Row[]; forecast: { timeMs: number; status: 
 const W = 640, H = 262, TOP = 12, BOTTOM = 130, GROUND_ROW = 158, STRIP = 196
 const color: Record<Status, string> = { GO: '#2fbf71', CAUTION: '#f0b429', STOP: '#d93a26' }
 
-const points = computed(() => props.history.filter(r => r.levels && r.levels.length >= 2).map(r => {
+const points = computed(() => sinceLastJump(props.history.filter(r => r.levels && r.levels.length >= 2).map(r => {
   const s = [...r.levels!].sort((a, b) => a.heightFt - b.heightFt)
   return { t: Date.parse(r.time), lo: s[0].tempF, hi: s[s.length - 1].tempF, status: r.status, ground: r.ground_status ?? r.status }
-}))
+})))
+/** Keeps the trailing run of readings whose times only move forward. */
+function sinceLastJump<T extends { t: number }>(rows: T[]): T[] {
+  let start = 0
+  for (let i = 1; i < rows.length; i++) if (rows[i]!.t < rows[i - 1]!.t) start = i
+  return rows.slice(start)
+}
 const range = computed(() => {
   const ts = [...points.value.map(p => p.t), ...props.forecast.map(f => f.timeMs)]
   const temps = points.value.flatMap(p => [p.lo, p.hi])

@@ -161,3 +161,13 @@ td.num { white-space: nowrap; }
 .jumps button { font: 600 15px var(--text); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px 14px; cursor: pointer; }
 .jumps button:hover { border-color: var(--ink); }
 @media (max-width: 700px) { .calc { grid-template-columns: 1fr; gap: 2px 0; } .calc dd { margin-bottom: 10px; } .hodo { grid-template-columns: 1fr; } }
+
+/* ---------- 3D drift view ---------- */
+.drift3d { height: 480px; border-radius: 4px; background: #0a1422; }
+.cardhead { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; flex: none; }
+.seg button { font: 600 15px var(--text); color: var(--muted); background: transparent; border: 0; padding: 7px 16px; cursor: pointer; }
+.seg button.on { background: var(--ink); color: var(--bg); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 14px; margin: 14px 0 6px; font-size: 14px; color: var(--muted); }
+.stats .figure { display: block; color: var(--ink); }
+.maplibregl-ctrl-attrib { font-size: 11px; }

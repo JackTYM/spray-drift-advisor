@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers'
 import {
-  BLOCKS, RANCH, alertText, alertsFor, applyAlert, applyHold, evaluate, forecastStrip, groundFromAnchor, interpolate, inversionLikely,
+  BLOCKS, RANCH, alertText, alertsFor, applyAlert, applyHold, evaluate, forecastReadings, groundFromAnchor, interpolate, inversionLikely,
   mulberry32, nextSafeWindow, postWatchMs, scenarioById, step, virtualTower,
   type Anchor, type BlockModel, type Demo, type Evaluation, type GroundObs, type Hysteresis, type Job, type Mode, type Reading,
   type SafeWindow, type SensitiveSite, type SessionState, type Snapshot, type SourceInfo,
@@ -225,7 +225,7 @@ export class RanchDO extends DurableObject<Env> {
   async forecast(blockId: string) {
     const block = BLOCKS.find(b => b.id === blockId)
     if (!block || !this.s.anchors.length) return []
-    return forecastStrip(block, this.s.anchors, this.now(), 12, this.openSession(blockId)?.job, this.sitesFor(block))
+    return forecastReadings(block, this.s.anchors, this.now(), 18, this.openSession(blockId)?.job, this.sitesFor(block))
   }
 
   // ---------- RPC: write ----------

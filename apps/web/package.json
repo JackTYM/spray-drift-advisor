@@ -11,8 +11,12 @@
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
+    "@deck.gl/core": "^9.4.1",
+    "@deck.gl/layers": "^9.4.1",
+    "@deck.gl/mapbox": "^9.4.1",
     "@drift/engine": "workspace:*",
     "leaflet": "^1.9.4",
+    "maplibre-gl": "^6.18.0",
     "nuxt": "^4.6.4",
     "vue": "^3.5.45",
     "vue-router": "^5.4.0"
