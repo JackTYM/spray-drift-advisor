@@ -1,5 +1,5 @@
 {
-  "name": "spray-drift-advisor",
+  "name": "stillair",
   "private": true,
   "scripts": {
     "test": "pnpm -r test",

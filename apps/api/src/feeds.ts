@@ -4,7 +4,7 @@ import {
 } from '@drift/engine'
 import { cacheGet, cachePut, type Sql } from './db'
 
-const HEADERS = { 'User-Agent': 'spray-drift-advisor-demo', Accept: 'application/json' }
+const HEADERS = { 'User-Agent': 'stillair-demo', Accept: 'application/json' }
 
 /** Fetches JSON and caches it; falls back to the cached copy when the source is down. */
 async function fetchCached(sql: Sql, key: string, url: string, init?: RequestInit): Promise<any> {

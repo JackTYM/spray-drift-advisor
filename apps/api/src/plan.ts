@@ -9,7 +9,7 @@ import { cacheGet, cachePut, type Sql } from './db'
  * them and at the field, the terrain around the field, and from those the hours ahead that are sprayable.
  */
 
-const HEADERS = { 'User-Agent': 'spray-drift-advisor-demo', Accept: 'application/json' }
+const HEADERS = { 'User-Agent': 'stillair-demo', Accept: 'application/json' }
 const UNITS = 'temperature_unit=fahrenheit&wind_speed_unit=mph&timeformat=unixtime'
 const HOURLY = 'temperature_2m,temperature_80m,wind_speed_10m,wind_speed_80m,wind_direction_10m,wind_direction_80m,wind_gusts_10m,relative_humidity_2m,cloud_cover,is_day'
 /** Stations farther than this carry no weight, so the model is not asked about them. */

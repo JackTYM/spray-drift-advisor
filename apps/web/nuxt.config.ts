@@ -19,7 +19,7 @@ export default defineNuxtConfig({
   },
   app: {
     head: {
-      title: 'Stillair: spray drift advisor',
+      title: 'Stillair',
       meta: [{ name: 'viewport', content: 'width=device-width, initial-scale=1' }, { name: 'theme-color', content: '#0d1826' }],
       link: [
         { rel: 'manifest', href: '/manifest.webmanifest' },

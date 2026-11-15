@@ -2,7 +2,7 @@ import { neon } from '@neondatabase/serverless'
 import { RANCH, anchorsFromOpenMeteo, azmetHourlyUrl, backtest, groundFromAzmet, openMeteoHistoryUrl, type Anchor, type GroundObs } from '@drift/engine'
 
 const year = Number(process.argv[2] ?? 2025)
-const headers = { 'User-Agent': 'spray-drift-advisor-demo', Accept: 'application/json' }
+const headers = { 'User-Agent': 'stillair-demo', Accept: 'application/json' }
 const pad = (n: number) => String(n).padStart(2, '0')
 
 /** Both services return occasional 502s; retry before giving up. */
