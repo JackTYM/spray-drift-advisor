@@ -5,5 +5,6 @@
     "test": "pnpm -r test",
     "dev:api": "pnpm --filter @drift/api dev",
     "dev:web": "pnpm --filter @drift/web dev"
-  }
+  },
+  "packageManager": "pnpm@12.21.0"
 }

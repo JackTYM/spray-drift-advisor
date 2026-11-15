@@ -9,3 +9,4 @@ docs/superpowers/
 .dev.vars
 .env
 dist/
+.playwright-mcp/

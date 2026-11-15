@@ -1,0 +1,35 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Test engine and type-check API
+        run: pnpm --filter @drift/engine --filter @drift/api test
+      # Worker secrets (DATABASE_URL, VAPID_*, LINQ_API_KEY, ALERT_PHONES) live in Cloudflare
+      # and are not touched by a deploy.
+      - name: Deploy API
+        run: pnpm --filter @drift/api exec wrangler deploy
+      - name: Build web
+        run: pnpm --filter @drift/web build
+        env:
+          NUXT_PUBLIC_API_BASE: ${{ vars.API_BASE }}
+          NUXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ vars.VAPID_PUBLIC_KEY }}
+      - name: Deploy web
+        working-directory: apps/web
+        run: pnpm exec wrangler deploy

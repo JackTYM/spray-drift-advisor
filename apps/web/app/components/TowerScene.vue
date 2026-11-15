@@ -3,7 +3,12 @@ import { ends, type Reading } from '@drift/engine'
 
 const props = defineProps<{ reading: Reading | null; deltaF: number; ri: number; droplet: 'fine' | 'medium' | 'coarse' }>()
 const canvas = ref<HTMLCanvasElement | null>(null)
-const W = 720, H = 320, GROUND = 280, PX_PER_FT = 6.5
+const levels = computed(() => {
+  if (!props.reading) return []
+  const { lo, hi } = ends(props.reading)
+  return [hi, lo]
+})
+const W = 480, H = 300, GROUND = 262, PX_PER_FT = 6.2, TOWER_X = 425
 let frame = 0
 let parts: { x: number; y: number; vy: number; age: number }[] = []
 
@@ -37,7 +42,7 @@ function tick() {
   }
 
   g.fillStyle = '#0f1b2d'; g.fillRect(0, 0, W, H)
-  g.font = '13px system-ui, sans-serif'
+  g.font = '15px system-ui, sans-serif'
   if (inverted) {
     g.fillStyle = 'rgba(194,87,26,0.50)'; g.fillRect(0, 0, W, lidY)
     g.fillStyle = 'rgba(31,111,181,0.45)'; g.fillRect(0, lidY, W, GROUND - lidY)
@@ -47,20 +52,20 @@ function tick() {
   } else {
     g.fillStyle = 'rgba(31,111,181,0.35)'; g.fillRect(0, 0, W, 130)
     g.fillStyle = 'rgba(194,87,26,0.28)'; g.fillRect(0, 130, W, GROUND - 130)
-    g.fillStyle = '#d5ecff'; g.fillText('cooler air above, warm air rising from the ground', 10, 20)
+    g.fillStyle = '#d5ecff'; g.fillText('cooler air above, warm air rising', 10, 22)
   }
   g.fillStyle = '#3b2f22'; g.fillRect(0, GROUND, W, H - GROUND)
-  for (let x = 50; x < W; x += 70) {
-    if (Math.abs(x - 600) < 30) continue
+  for (let x = 40; x < W; x += 62) {
+    if (Math.abs(x - TOWER_X) < 30) continue
     g.fillStyle = '#5a3c22'; g.fillRect(x - 2, GROUND - 26, 4, 26)
     g.fillStyle = '#2f7d3a'; g.beginPath(); g.arc(x, GROUND - 48, 26, 0, 6.3); g.fill()
   }
-  g.strokeStyle = '#e8edf3'; g.lineWidth = 3; g.beginPath(); g.moveTo(600, GROUND); g.lineTo(600, GROUND - (hi.heightFt + 2) * PX_PER_FT); g.stroke(); g.lineWidth = 1
+  g.strokeStyle = '#e8edf3'; g.lineWidth = 3; g.beginPath(); g.moveTo(TOWER_X, GROUND); g.lineTo(TOWER_X, GROUND - (hi.heightFt + 2) * PX_PER_FT); g.stroke(); g.lineWidth = 1
   for (const [lvl, color] of [[hi, '#ffb066'], [lo, '#8fd0ff']] as const) {
     const y = GROUND - lvl.heightFt * PX_PER_FT
-    g.fillStyle = color; g.beginPath(); g.arc(600, y, 5, 0, 6.3); g.fill()
-    g.fillStyle = '#fff'; g.font = 'bold 13px system-ui, sans-serif'
-    g.fillText(`${lvl.heightFt} ft  ${lvl.tempF.toFixed(1)}°F  ${lvl.windMph} mph ${toward(lvl.windDirDeg) > 0 ? '→' : '←'}`, 612, y + 4 > H - 6 ? H - 6 : y + 4)
+    g.fillStyle = color; g.beginPath(); g.arc(TOWER_X, y, 6, 0, 6.3); g.fill()
+    g.fillStyle = '#fff'; g.font = 'bold 15px system-ui, sans-serif'
+    g.fillText(`${lvl.heightFt} ft`, TOWER_X + 10, y + 5)
   }
   g.fillStyle = 'rgba(233,243,255,0.78)'
   const radius = props.droplet === 'fine' ? 1.4 : props.droplet === 'medium' ? 2 : 2.6
@@ -74,6 +79,9 @@ onBeforeUnmount(() => cancelAnimationFrame(frame))
 
 <template>
   <div>
+    <div v-for="l in levels" :key="l.heightFt" class="level">
+      <strong>{{ l.heightFt }} ft</strong> {{ l.tempF.toFixed(1) }}°F · wind {{ l.windMph }} mph {{ toward(l.windDirDeg) > 0 ? '→' : '←' }}
+    </div>
     <canvas ref="canvas" class="scene" :width="W" :height="H" role="img"
       :aria-label="deltaF > 0 ? 'Side view: spray droplets are trapped under a warm layer and moving sideways' : 'Side view: spray droplets are rising and dispersing'" />
     <div class="muted">Droplets illustrate how spray behaves in these conditions. They are not a prediction of drift distance.</div>
