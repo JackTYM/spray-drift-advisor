@@ -76,25 +76,18 @@ const surroundings = computed(() => (isBlock.value ? blockSurroundings.value : n
 
 type TabId = 'route' | 'station' | 'micro' | 'estimate' | 'confidence' | 'profile' | 'wind' | 'numbers'
 const tab = ref<TabId>('route')
-/** The plain view answers "when can I go". Advanced adds the working behind it, for anyone who wants to check the confidence figure. */
-const advanced = useState('plan-advanced', () => false)
 const allTabs: { id: TabId; label: string; advanced?: boolean }[] = [
   { id: 'route', label: 'Tonight\'s route' }, { id: 'station', label: 'Against one weather station' }, { id: 'micro', label: 'This field\'s microclimate' },
   { id: 'estimate', label: 'Where the estimate comes from', advanced: true }, { id: 'confidence', label: 'How sure, and why', advanced: true },
   { id: 'profile', label: 'Air profile at this hour', advanced: true }, { id: 'wind', label: 'Wind at this hour', advanced: true }, { id: 'numbers', label: 'The numbers', advanced: true },
 ]
-const tabs = computed(() => allTabs.filter(t => advanced.value || !t.advanced))
-/** Turning Advanced on opens its first chart and brings it into view, so it is clear what was added. */
+/** The decision first, then the working behind it: every tab is always shown. */
+const tabs = allTabs
 const evidence = ref<HTMLElement | null>(null)
-watch(advanced, on => {
-  if (on) { tab.value = 'profile'; nextTick(() => evidence.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })) }
-  else if (allTabs.find(t => t.id === tab.value)?.advanced) tab.value = 'route'
-})
 const volatile = ref(false)
 /** The walkthrough sets what the page shows at each step. */
 function demoGo(step: { fieldId?: string; pickedMs?: number | null; stage?: 'map' | '3d'; tab?: string; advanced?: boolean }) {
   if (step.fieldId && step.fieldId !== fieldId.value) fieldId.value = step.fieldId
-  if (step.advanced !== undefined) advanced.value = step.advanced
   // After the field and Advanced changes have settled.
   nextTick(() => nextTick(() => {
     if (step.pickedMs !== undefined) picked.value = step.pickedMs
@@ -170,7 +163,6 @@ const askContext = computed(() => {
         <option value="live">Live forecast</option>
         <option value="example">Example day (scripted)</option>
       </select>
-      <button class="presetbtn advbtn" :class="{ on: advanced }" :aria-pressed="advanced" @click="advanced = !advanced">{{ advanced ? 'Hide the working' : 'Advanced: show the working' }}</button>
       <div class="clock"><span class="muted">Fields are ordered by soonest window. {{ fmtStamp(now) }}</span></div>
     </div>
 

@@ -71,7 +71,7 @@ const steps = computed(() => {
     {
       rubric: 'Execution and honesty',
       title: 'Check the working',
-      text: 'Live data, deployed, every figure labelled measured, estimated or modelled. The working behind the confidence figure is one click away, with its limits stated.',
+      text: 'Live data, deployed, every figure labelled measured, estimated or modelled. The working behind the confidence figure is in these tabs, with its limits stated.',
       go: { advanced: true, tab: 'confidence' },
     },
   ]
