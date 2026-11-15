@@ -6,7 +6,7 @@ export const escalate = (s: Status): Status => (s === 'GO' ? 'CAUTION' : 'STOP')
 export interface Level { heightFt: number; tempF: number; windMph: number; windDirDeg: number }
 export type ReadingKind = 'measured' | 'modelled' | 'recorded'
 export interface Reading { source: string; kind: ReadingKind; blockId: string; time: string; levels: Level[] }
-export interface GroundObs { station: string; timeMs: number; tempF: number; windMph: number; windDirDeg: number }
+export interface GroundObs { station: string; timeMs: number; tempF: number; windMph: number; windDirDeg: number; rhPct?: number }
 export interface SensitiveSite { name: string; type: string; bearingDeg: number; distanceM: number }
 export interface Job {
   product: string

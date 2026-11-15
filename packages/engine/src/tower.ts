@@ -98,4 +98,6 @@ export function virtualTower(block: BlockModel, a: Anchor, rand: () => number, n
 /** Ground station stand-in for scripted scenarios: an exposed station outside the canopy. */
 export const groundFromAnchor = (a: Anchor, station: string): GroundObs => ({
   station, timeMs: a.timeMs, tempF: r1(a.temp2mF), windMph: r1(a.wind10Mph * 0.75), windDirDeg: Math.round(a.dir10Deg),
+  // Scripted humidity: damp at night, dry by day.
+  rhPct: a.isDay ? 35 : 82,
 })

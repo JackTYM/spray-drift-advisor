@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BLOCKS } from '@drift/engine'
+import { BLOCKS, scenarioById } from '@drift/engine'
 
 const { snap, api } = useRanch()
 const selected = ref('block-3')
@@ -9,6 +9,9 @@ const sessions = ref<any[]>([])
 const alerts = ref<any[]>([])
 const backtest = ref<any>(null)
 const surroundings = useSurroundings(selected)
+const block = computed(() => snap.value?.blocks.find(b => b.id === selected.value) ?? null)
+const marks = computed(() => (snap.value?.demo.mode === 'scenario' ? scenarioById(snap.value.demo.scenarioId).marks : []))
+const jump = (min: number) => $fetch(`${api}/api/demo`, { method: 'POST', body: { seekMin: min } }).then(refresh)
 
 async function refresh() {
   try {
@@ -37,6 +40,11 @@ const levels = (row: any) => (row.levels ?? []).map((l: any) => `${l.heightFt} f
 
 <template>
   <main class="wide">
+    <div v-if="marks.length" class="jumps">
+      <span class="muted">Jump to</span>
+      <button v-for="m in marks" :key="m.label" @click="jump(m.min)">{{ m.label }}</button>
+      <span class="muted">{{ snap ? fmtStamp(snap.nowMs) : '' }}, scripted night</span>
+    </div>
     <div class="grid3">
       <button v-for="b in snap?.blocks ?? []" :key="b.id" class="card tile" :class="[b.evaluation?.status, { selected: selected === b.id }]" @click="selected = b.id">
         <div class="name">{{ b.name }} <span class="muted">{{ b.note.toLowerCase() }}</span></div>
@@ -66,6 +74,27 @@ const levels = (row: any) => (row.levels ?? []).map((l: any) => `${l.heightFt} f
       </section>
       </div>
     </div>
+
+    <section class="card">
+      <h2>One ground station compared with two heights</h2>
+      <CompareTable :block="block" :ground="snap?.ground ?? null" />
+    </section>
+
+    <div class="grid2">
+      <section class="card">
+        <h2>Vertical profile at {{ blockName(selected) }}</h2>
+        <VerticalProfile :reading="block?.reading ?? null" />
+      </section>
+      <section class="card">
+        <h2>Wind at both heights</h2>
+        <Hodograph :reading="block?.reading ?? null" />
+      </section>
+    </div>
+
+    <section class="card">
+      <h2>How the numbers were worked out</h2>
+      <CalcDetails :reading="block?.reading ?? null" :ground="snap?.ground ?? null" />
+    </section>
 
     <section class="card">
       <h2>Spray jobs</h2>

@@ -240,7 +240,7 @@ export class RanchDO extends DurableObject<Env> {
     return {}
   }
 
-  async setDemo(d: { mode?: Mode; scenarioId?: string; replayDate?: string; stepMin?: number; reset?: boolean }): Promise<Snapshot | { error: string }> {
+  async setDemo(d: { mode?: Mode; scenarioId?: string; replayDate?: string; stepMin?: number; reset?: boolean; seekMin?: number }): Promise<Snapshot | { error: string }> {
     const demo = this.s.demo
     const changed = (d.mode !== undefined && d.mode !== demo.mode) || (d.scenarioId !== undefined && d.scenarioId !== demo.scenarioId) || (d.replayDate !== undefined && d.replayDate !== demo.replayDate)
     demo.mode = d.mode ?? demo.mode
@@ -267,6 +267,12 @@ export class RanchDO extends DurableObject<Env> {
         if (!this.s.anchors.length) return { error: `no historical profile for ${demo.replayDate}` }
         demo.simMs = Date.parse(`${demo.replayDate}T17:00:00${RANCH.utcOffset}`)
       }
+    }
+    // Jump to a moment in a scripted night. History restarts there, so smoothing never spans the jump.
+    if (d.seekMin !== undefined && demo.mode === 'scenario') {
+      this.gen++
+      for (const bs of Object.values(this.s.blocks)) { bs.history = []; bs.hyst = null; bs.evaluation = null }
+      demo.simMs = scenarioById(demo.scenarioId).startMs + d.seekMin * 60_000
     }
     if (d.reset) await resetLog(this.sql)
     await this.save()

@@ -44,7 +44,10 @@ export function groundFromAzmet(row: Record<string, string>, station: string): G
   const windMph = row.wind_spd_mph !== undefined ? Number(row.wind_spd_mph) : Number(row.wind_spd_mps) * 2.23694
   const windDirDeg = Number(row.wind_vector_dir)
   if ([timeMs, tempF, windMph, windDirDeg].some(Number.isNaN) || tempF < -100 || windMph < 0 || windDirDeg < 0) return null
-  return { station, timeMs, tempF: r1(tempF), windMph: r1(windMph), windDirDeg: Math.round(windDirDeg) }
+  const rh = Number(row.relative_humidity)
+  const out: GroundObs = { station, timeMs, tempF: r1(tempF), windMph: r1(windMph), windDirDeg: Math.round(windDirDeg) }
+  if (row.relative_humidity !== undefined && rh >= 0 && rh <= 100) out.rhPct = Math.round(rh)
+  return out
 }
 
 // ---------- Overpass (OpenStreetMap) ----------

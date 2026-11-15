@@ -143,3 +143,21 @@ td.num { white-space: nowrap; }
 .leaflet-container { font-family: var(--text); }
 .leaflet-control-attribution { background: rgba(13, 24, 38, .8) !important; color: #93a5bb !important; }
 .leaflet-control-attribution a { color: #93a5bb !important; }
+
+/* ---------- explanation panels ---------- */
+.hodo { display: grid; grid-template-columns: minmax(180px, 280px) 1fr; gap: 18px; align-items: center; }
+.hodo svg { width: 100%; }
+.swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 8px; }
+.calc { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 10px 20px; font-size: 15px; }
+.calc dt { color: var(--muted); font-weight: 500; }
+.calc dd { margin: 0; font-family: ui-monospace, Menlo, monospace; font-size: 14px; line-height: 1.5; }
+.calc dd b { color: var(--warm); font-weight: 600; }
+.compare { display: grid; grid-template-columns: 1fr 1fr; }
+.compare > div { padding: 0 16px; }
+.compare > div:first-child { padding-left: 0; }
+.compare > div + div { border-left: 1px solid var(--line); }
+.compare p { margin: 8px 0 0; }
+.jumps { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; align-items: center; }
+.jumps button { font: 600 15px var(--text); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px 14px; cursor: pointer; }
+.jumps button:hover { border-color: var(--ink); }
+@media (max-width: 700px) { .calc { grid-template-columns: 1fr; gap: 2px 0; } .calc dd { margin-bottom: 10px; } .hodo { grid-template-columns: 1fr; } }
