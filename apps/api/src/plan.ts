@@ -145,3 +145,21 @@ export async function buildPlan(sql: Sql, f: { id: string; name: string; lat: nu
     hours: planned, windows: findWindows(planned, jobMinutes), sites,
   }
 }
+
+/** A finished plan is good for a few minutes: stations report every 15 minutes and the forecast hourly. */
+const PLAN_TTL_MS = 5 * 60_000
+const planMemo = new Map<string, Plan>()
+
+/** The plan for a field, from memory or the database when one was made in the last few minutes, otherwise built now. */
+export async function cachedPlan(sql: Sql, f: { id: string; name: string; lat: number; lon: number }, jobMinutes: number, keep: (p: Promise<unknown>) => void): Promise<Plan | { error: string }> {
+  const key = `plan:${f.lat.toFixed(4)},${f.lon.toFixed(4)}`
+  const fresh = (p: Plan | undefined | null): p is Plan => !!p && Date.now() - p.generatedMs < PLAN_TTL_MS
+  const dress = (p: Plan): Plan => ({ ...p, field: f, jobMinutes, windows: findWindows(p.hours, jobMinutes) })
+  const inMemory = planMemo.get(key)
+  if (fresh(inMemory)) return dress(inMemory)
+  const stored = (await cacheGet(sql, key).catch(() => null)) as Plan | null
+  if (fresh(stored)) { planMemo.set(key, stored); return dress(stored) }
+  const built = await buildPlan(sql, f, jobMinutes)
+  if (!('error' in built)) { planMemo.set(key, built); keep(cachePut(sql, key, built).catch(() => null)) }
+  return built
+}

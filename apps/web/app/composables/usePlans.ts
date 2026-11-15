@@ -24,6 +24,7 @@ export const PRESET_FIELDS = [
 /** Connor's figure: a custom applicator's job on one field runs about 45 minutes, and is not stopped once started. */
 export const DEFAULT_JOB_MIN = 45
 const KEY = 'stillair-plan'
+const PLANS_KEY = 'stillair-plans'
 let started = false
 
 /** The fields being planned (the ranch's blocks plus any the user adds), their job lengths, and a plan for each. */
@@ -52,6 +53,7 @@ export function usePlans() {
     try {
       const plan = await $fetch<Plan>(`${api}/api/plan`, { query: { id: f.id, name: f.name, lat: f.lat, lon: f.lon } })
       plans.value = { ...plans.value, [f.id]: plan }
+      try { localStorage.setItem(PLANS_KEY, JSON.stringify(plans.value)) } catch { /* storage full or private window */ }
       const { [f.id]: _gone, ...rest } = errors.value
       errors.value = rest
     } catch (err: any) {
@@ -92,6 +94,12 @@ export function usePlans() {
       if (Array.isArray(saved.custom)) custom.value = saved.custom
       if (saved.jobMin) jobMin.value = saved.jobMin
       if (saved.jobs) jobs.value = saved.jobs
+    } catch { /* nothing saved */ }
+    // Show the last plans at once, then replace them as fresh ones arrive.
+    try {
+      const saved = JSON.parse(localStorage.getItem(PLANS_KEY) ?? '{}') as Record<string, Plan>
+      const recent = Object.entries(saved).filter(([, p]) => Date.now() - p.generatedMs < 60 * 60_000 && p.hours?.[0]?.margins)
+      if (recent.length) plans.value = Object.fromEntries(recent)
     } catch { /* nothing saved */ }
     refresh()
     setInterval(refresh, 5 * 60_000)
