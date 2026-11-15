@@ -297,3 +297,5 @@ label.check input { width: 22px; height: 22px; min-height: 0; margin: 0; flex: n
 .tripcost input { width: 110px; min-height: 42px; margin: 0; padding: 6px 10px; text-align: right; }
 .banner.marginal { background: var(--panel-2); color: var(--ink); border-left: 8px solid var(--caution); }
 .blocktabs button.STOP .state { font-size: 17px; }
+.advbtn { border-style: solid; }
+.advbtn.on { color: var(--bg); background: var(--ink); border-color: var(--ink); }

@@ -74,8 +74,18 @@ const blockSurroundings = useSurroundings(computed(() => (isBlock.value ? field.
 const noSurroundings = computed<Surroundings>(() => ({ blockId: field.value.id, addresses: [], centerCrop: null, crops: [], elevationFt: null, aroundFt: [], lowGround: null, fetchedMs: 0 }))
 const surroundings = computed(() => (isBlock.value ? blockSurroundings.value : noSurroundings.value))
 
-const tab = ref<'estimate' | 'micro' | 'confidence' | 'route' | 'station'>('estimate')
-const tabs = [{ id: 'route', label: 'Tonight\'s route' }, { id: 'estimate', label: 'Where the estimate comes from' }, { id: 'station', label: 'Against one weather station' }, { id: 'micro', label: 'This field\'s microclimate' }, { id: 'confidence', label: 'How sure, and why' }] as const
+type TabId = 'route' | 'station' | 'micro' | 'estimate' | 'confidence' | 'profile' | 'wind' | 'numbers'
+const tab = ref<TabId>('route')
+/** The plain view answers "when can I go". Advanced adds the working behind it, for anyone who wants to check the confidence figure. */
+const advanced = useState('plan-advanced', () => false)
+const allTabs: { id: TabId; label: string; advanced?: boolean }[] = [
+  { id: 'route', label: 'Tonight\'s route' }, { id: 'station', label: 'Against one weather station' }, { id: 'micro', label: 'This field\'s microclimate' },
+  { id: 'estimate', label: 'Where the estimate comes from', advanced: true }, { id: 'confidence', label: 'How sure, and why', advanced: true },
+  { id: 'profile', label: 'Air profile at this hour', advanced: true }, { id: 'wind', label: 'Wind at this hour', advanced: true }, { id: 'numbers', label: 'The numbers', advanced: true },
+]
+const tabs = computed(() => allTabs.filter(t => advanced.value || !t.advanced))
+watch(advanced, on => { if (!on && allTabs.find(t => t.id === tab.value)?.advanced) tab.value = 'route' })
+const volatile = ref(false)
 const tower = computed(() => (plan.value ? towerModelFor(plan.value.terrain) : null))
 const used = computed(() => plan.value?.estimate.stations.filter(s => s.weight >= 0.01) ?? [])
 const signed = (n: number, unit = '') => `${n > 0 ? '+' : ''}${n}${unit}`
@@ -119,6 +129,7 @@ const askContext = computed(() => {
       </div>
       <button class="whatifbtn" :class="{ on: adding }" :aria-pressed="adding" @click="adding = !adding; stage = 'map'">{{ adding ? 'Click the map to place the field' : 'Add a field' }}</button>
       <button v-for="p in presets" :key="p.name" class="presetbtn" @click="addPreset(p)">+ {{ p.name }}</button>
+      <button class="presetbtn advbtn" :class="{ on: advanced }" :aria-pressed="advanced" @click="advanced = !advanced">{{ advanced ? 'Hide the working' : 'Advanced: show the working' }}</button>
       <div class="clock"><span class="muted">Fields are ordered by soonest window. {{ fmtStamp(now) }}</span></div>
     </div>
 
@@ -160,7 +171,8 @@ const askContext = computed(() => {
 
         <section v-if="plan">
           <h2>What you need to know</h2>
-          <PlanAnswers :hours="plan.hours" :window="answerWindow" :job-minutes="minutes" :now-ms="now" :trip-cost-usd="tripCostUsd" />
+          <PlanAnswers :hours="plan.hours" :window="answerWindow" :job-minutes="minutes" :now-ms="now" :trip-cost-usd="tripCostUsd" :volatile="volatile" />
+          <label class="check" style="margin:12px 0 0"><input v-model="volatile" type="checkbox"> This product gives off vapor (volatile)</label>
           <p v-if="clears" class="muted" style="margin:10px 0 0">The warm-over-cool layer is expected to clear around <strong style="color:var(--ink)">{{ fmtWhen(clears.p50Ms, now) }}</strong> (most likely between {{ fmtTime(clears.p10Ms) }} and {{ fmtTime(clears.p90Ms) }}). Read from this plan's hourly estimate across 200 simulated outcomes, not from a heating model.</p>
           <label class="tripcost">Cost of a wasted trip (crew, fuel, setup), $<input v-model.number="tripCostUsd" type="number" min="0" step="50"></label>
         </section>
@@ -234,6 +246,13 @@ const askContext = computed(() => {
 
           <NightPlan v-if="tab === 'route'" :fields="routeFields" :now-ms="now" @select="fieldId = $event" />
           <PlanValidation v-else-if="tab === 'station'" :skill="plan.skill" :stations="plan.skill.n" />
+
+          <div v-else-if="tab === 'profile'" class="grid2">
+            <VerticalProfile :reading="hour?.reading ?? null" />
+            <div><h2>Is the air mixing?</h2><MixingGauge :ri="hourEval?.ri ?? 0" /><p class="muted">Estimated for {{ hour ? fmtWhen(hour.timeMs, now) : '' }} from the forecast, the station correction and this field's terrain. Not a measurement.</p></div>
+          </div>
+          <Hodograph v-else-if="tab === 'wind'" :reading="hour?.reading ?? null" />
+          <CalcDetails v-else-if="tab === 'numbers'" :reading="hour?.reading ?? null" :ground="null" />
 
           <div v-else-if="tab === 'estimate'">
             <p class="mapfact" style="margin-top:0">
