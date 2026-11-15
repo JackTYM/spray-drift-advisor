@@ -169,7 +169,7 @@ function tick() {
       new ScatterplotLayer({
         // Where droplets came down. Inside the block they are drawn on top of the trees so they are not hidden; outside, on the ground.
         id: 'deposits', data: deposits, radiusUnits: 'meters', stroked: false,
-        getRadius: (d: { off: boolean }) => (d.off ? 6 : 3),
+        getRadius: (d: { off: boolean }) => (d.off ? 7 : 4), radiusMinPixels: 2.5,
         getPosition: (d: { x: number; y: number; off: boolean }) => [...toLngLat(m.lat, m.lon, d.x, d.y), d.off ? 0.6 : CANOPY_M * EXAG + 1],
         getFillColor: (d: { off: boolean }) => (d.off ? [214, 72, 232, 235] : [176, 255, 96, 210]),
       }),
@@ -200,7 +200,30 @@ function resetAir() {
     Object.assign(stats, { emitted: 0, landed: 0, offLow: 0, aloft: 0 })
   }
   hasLid.value = lid
+  seedDeposits()
   drawStatic()
+}
+
+/**
+ * Shows where spray lands straight away, instead of waiting for the animation to build it up:
+ * a batch of droplets released across the whole block is run to the ground with the same physics.
+ */
+function seedDeposits() {
+  deposits = []
+  if (!env) return
+  const f = field.value
+  const b = bounds(f)
+  for (let i = 0; i < 900; i++) {
+    let x = 0, y = 0
+    for (let tries = 0; tries < 20; tries++) {
+      x = b.minX + rand() * (b.maxX - b.minX); y = b.minY + rand() * (b.maxY - b.minY)
+      if (pointInPolygon(x, y, f)) break
+    }
+    const p: Droplet = { x, y, z: 1 + rand() * (CANOPY_M - 1), vs: SETTLE[props.droplet] * (0.6 + rand() * 0.8), age: 0, leftLow: false, hit: -1 }
+    let alive = true
+    for (let s = 0; s < 500 && alive; s++) alive = stepDroplet(p, env, 2, g, f)
+    if (p.z <= 0 && Math.abs(p.x) < 900 && Math.abs(p.y) < 900) deposits.push({ x: p.x, y: p.y, off: !pointInPolygon(p.x, p.y, f) })
+  }
 }
 
 onMounted(() => {

@@ -247,9 +247,9 @@ const askContext = computed(() => {
         <section v-if="fields.length > 1" class="card">
           <div class="cardhead">
             <h2>The next 48 hours, every field</h2>
-            <span class="muted">Green is sprayable, amber marginal, red not. Brighter means more sure. Click any hour.</span>
+            <span class="muted">Share of outcomes that are sprayable (green), marginal (amber) or closed (red). Dark bars on top: windows the whole job fits. Click any hour.</span>
           </div>
-          <FieldsOverview :fields="ordered.map(x => x.f)" :plans="plans" :selected-id="field.id" :selected-ms="hour?.timeMs ?? 0" @select="(id, ms) => { fieldId = id; nextTick(() => { picked = ms || null }) }" />
+          <FieldsOverview :fields="ordered.map(x => x.f)" :plans="plans" :selected-id="field.id" :selected-ms="hour?.timeMs ?? 0" :windows="Object.fromEntries(fields.map(f => [f.id, windowsFor(f.id)]))" :now-ms="now" @select="(id, ms) => { fieldId = id; nextTick(() => { picked = ms || null }) }" />
         </section>
 
         <section class="card">
@@ -257,7 +257,10 @@ const askContext = computed(() => {
             <h2>The next 48 hours at {{ field.name }}</h2>
             <SourceBadge v-if="plan" kind="estimated" :detail="`${fmtTime(plan.generatedMs)} from ${plan.stations.length} stations and the forecast model`" />
           </div>
-          <PlanStrip v-if="plan" :hours="plan.hours" :windows="windows" :selected="hour?.timeMs ?? 0" @select="picked = $event" />
+          <template v-if="plan">
+            <ConfidenceChart :hours="plan.hours" :windows="windows" :selected="hour?.timeMs ?? 0" :now-ms="now" :height="150" @select="picked = $event" />
+            <p class="muted striplegend">Each hour shows the share of outcomes that are <span style="color:var(--go)">sprayable</span>, <span style="color:var(--caution)">marginal</span> or <span style="color:#ff7864">closed</span>, given the measured error of the estimate. The thin strip underneath is the most likely outcome. Dark bars on top are windows the whole job fits in; the blue line is now. It is a confidence index, not a calibrated probability. Click an hour to preview it.</p>
+          </template>
           <p v-else class="muted">{{ errors[field.id] ?? 'Loading the plan…' }}</p>
         </section>
 
