@@ -35,7 +35,7 @@ describe('planRoute', () => {
 
   it('defers a field whose window closes before the crew can get there', () => {
     const plan = planRoute([field('x', -112, 120, [win(0, 600, 900)]), field('y', -112.1, 30, [win(0, 30, 100)])], { nowMs: now, from: { lat: 33, lon: -111 } })
-    expect(plan.deferred.every((d) => d.reason === 'Its window closes before the crew could get there')).toBe(true)
+    expect(plan.deferred.every((d) => d.reason === 'Its window closes before the crew is free to get there')).toBe(true)
   })
 
   it('does at least as many jobs as list order', () => {

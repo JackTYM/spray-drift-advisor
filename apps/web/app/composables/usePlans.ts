@@ -4,6 +4,7 @@ export interface PlanField { id: string; name: string; lat: number; lon: number;
 export interface Plan {
   field: PlanField
   generatedMs: number
+  example?: boolean
   terrain: Terrain
   estimate: FieldEstimate
   skill: Skill
@@ -49,9 +50,19 @@ export function usePlans() {
   /** Windows are sized to each field's job on this side, so changing the job length needs no new data. */
   const windowsFor = (id: string): JobWindow[] => (plans.value[id] ? jobWindows(plans.value[id]!.hours, minutesFor(id), { nowMs: Date.now() }) : [])
 
+  /** Show the scripted example day instead of the live forecast. Always labelled on the page. */
+  const example = useState('plan-example', () => false)
+  function setExample(on: boolean) {
+    if (on === example.value) return
+    example.value = on
+    plans.value = {}
+    refresh()
+  }
   async function load(f: PlanField) {
     try {
-      const plan = await $fetch<Plan>(`${api}/api/plan`, { query: { id: f.id, name: f.name, lat: f.lat, lon: f.lon } })
+      const wanted = example.value
+      const plan = await $fetch<Plan>(`${api}/api/plan`, { query: { id: f.id, name: f.name, lat: f.lat, lon: f.lon, ...(wanted ? { example: 1 } : {}) } })
+      if (wanted !== example.value) return
       plans.value = { ...plans.value, [f.id]: plan }
       try { localStorage.setItem(PLANS_KEY, JSON.stringify(plans.value)) } catch { /* storage full or private window */ }
       const { [f.id]: _gone, ...rest } = errors.value
@@ -98,7 +109,7 @@ export function usePlans() {
     // Show the last plans at once, then replace them as fresh ones arrive.
     try {
       const saved = JSON.parse(localStorage.getItem(PLANS_KEY) ?? '{}') as Record<string, Plan>
-      const recent = Object.entries(saved).filter(([, p]) => Date.now() - p.generatedMs < 60 * 60_000 && p.hours?.[0]?.margins)
+      const recent = Object.entries(saved).filter(([, p]) => !p.example && Date.now() - p.generatedMs < 60 * 60_000 && p.hours?.[0]?.margins)
       if (recent.length) plans.value = Object.fromEntries(recent)
     } catch { /* nothing saved */ }
     refresh()
@@ -126,5 +137,5 @@ export function usePlans() {
     return best
   }
 
-  return { bestChance, fields, plans, errors, minutesFor, windowsFor, addField, removeField, setMinutes, jobFor, setJob, PRESET_FIELDS }
+  return { example, setExample, bestChance, fields, plans, errors, minutesFor, windowsFor, addField, removeField, setMinutes, jobFor, setJob, PRESET_FIELDS }
 }

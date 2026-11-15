@@ -171,7 +171,7 @@ app.get('/api/plan', async c => {
   const lat = Number(c.req.query('lat')), lon = Number(c.req.query('lon'))
   if (!(lat > 24 && lat < 50 && lon > -125 && lon < -66)) return c.json({ error: 'Give a latitude and longitude inside the continental United States.' }, 400)
   const jobMinutes = Math.min(Math.max(Number(c.req.query('jobMin')) || 45, 15), 600)
-  const plan = await cachedPlan(db(c.env), { id: c.req.query('id') ?? 'field', name: c.req.query('name') ?? 'Field', lat, lon }, jobMinutes, p => c.executionCtx.waitUntil(p))
+  const plan = await cachedPlan(db(c.env), { id: c.req.query('id') ?? 'field', name: c.req.query('name') ?? 'Field', lat, lon }, jobMinutes, p => c.executionCtx.waitUntil(p), c.req.query('example') === '1')
   return c.json(plan, 'error' in plan ? 502 : 200)
 })
 

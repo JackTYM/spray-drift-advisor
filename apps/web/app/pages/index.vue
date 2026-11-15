@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { BLOCKS, breakTime, confidenceWord, evaluate, squareOutline, toLngLat, towerModelFor, type BlockSnapshot, type RouteField, type Status, type Surroundings } from '@drift/engine'
 
-const { bestChance, jobFor, fields, plans, errors, minutesFor, windowsFor, addField, removeField, PRESET_FIELDS } = usePlans()
+const { example, setExample, bestChance, jobFor, fields, plans, errors, minutesFor, windowsFor, addField, removeField, PRESET_FIELDS } = usePlans()
 /** Windows start on 15 minute steps, so one that starts within a step of now is open. */
 const OPEN_SLACK_MS = 15 * 60_000
 const fieldId = ref('block-3')
@@ -148,12 +148,17 @@ const askContext = computed(() => {
       </div>
       <button class="whatifbtn" :class="{ on: adding }" :aria-pressed="adding" @click="adding = !adding; stage = 'map'">{{ adding ? 'Click the map to place the field' : 'Add a field' }}</button>
       <button v-for="p in presets" :key="p.name" class="presetbtn" @click="addPreset(p)">+ {{ p.name }}</button>
+      <select :value="example ? 'example' : 'live'" aria-label="Weather shown" class="sourcepick" @change="setExample(($event.target as HTMLSelectElement).value === 'example')">
+        <option value="live">Live forecast</option>
+        <option value="example">Example day (scripted)</option>
+      </select>
       <button class="presetbtn advbtn" :class="{ on: advanced }" :aria-pressed="advanced" @click="advanced = !advanced">{{ advanced ? 'Hide the working' : 'Advanced: show the working' }}</button>
       <div class="clock"><span class="muted">Fields are ordered by soonest window. {{ fmtStamp(now) }}</span></div>
     </div>
 
     <p class="pitchline">Your weather station sees one point at one height. Stillair estimates the air over your field from every public station, says how sure it is, and finds the window your whole job fits in.</p>
 
+    <p v-if="example" class="examplenote" role="status"><strong>Example day.</strong> The hours ahead are a scripted, typical clear autumn day, not today's forecast. Stations, terrain and buildings are real. Switch to "Live forecast" for the real plan.</p>
     <div class="split">
       <aside class="decide">
         <div class="banner plan" :class="!plan ? 'wait' : openNow ? 'GO' : next ? 'CAUTION' : chance ? 'marginal' : 'STOP'" role="status" aria-live="polite">

@@ -28,7 +28,7 @@ export interface RoutePlan extends RouteSummary {
 
 const MIN = 60_000
 const NO_WINDOW = 'No window in the next 48 hours'
-const TOO_LATE = 'Its window closes before the crew could get there'
+const TOO_LATE = 'Its window closes before the crew is free to get there'
 
 interface Sim extends RouteSummary {
   stops: RouteStop[]
@@ -55,8 +55,10 @@ function simulate(order: RouteField[], nowMs: number, travel: (a: { lat: number;
       continue
     }
     const finish = best.start + f.jobMinutes * MIN
-    const w = (best.start - arrive) / MIN
-    stops.push({ id: f.id, name: f.name, travelMinutes: t, arriveMs: arrive, startMs: best.start, finishMs: finish, waitMinutes: w, confidence: best.conf })
+    // A crew does not sit at a field for hours: when the window is more than two hours off, it sets out later and arrives as it opens.
+    const early = (best.start - arrive) / MIN
+    const w = early > 120 ? 0 : early
+    stops.push({ id: f.id, name: f.name, travelMinutes: t, arriveMs: best.start - w * MIN, startMs: best.start, finishMs: finish, waitMinutes: w, confidence: best.conf })
     drive += t
     wait += w
     clock = finish

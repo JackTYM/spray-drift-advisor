@@ -106,6 +106,8 @@ const neighbours = (blockId: string): SensitiveSite[] => (NEIGHBOURS[blockId] ??
 export interface Plan {
   field: { id: string; name: string; lat: number; lon: number }
   generatedMs: number
+  /** True when the hours ahead are the scripted example day, not the live forecast. */
+  example: boolean
   jobMinutes: number
   terrain: Terrain
   estimate: FieldEstimate
@@ -119,10 +121,34 @@ export interface Plan {
   sites: SensitiveSite[]
 }
 
-export async function buildPlan(sql: Sql, f: { id: string; name: string; lat: number; lon: number }, jobMinutes: number): Promise<Plan | { error: string }> {
+/**
+ * A scripted, typical clear autumn day for demonstrations, in place of the live forecast: an inversion overnight that
+ * breaks mid-morning, a steady morning window, a windy afternoon, and an evening hour with the wind swinging round.
+ * Stations and terrain stay real. The plan is marked as an example and the page says so.
+ */
+function exampleHours(nowMs: number): HourModel[] {
+  const start = Math.floor(nowMs / 3_600_000) * 3_600_000
+  return Array.from({ length: 49 }, (_, i) => {
+    const timeMs = start + i * 3_600_000
+    const h = new Date(timeMs - 7 * 3_600_000).getUTCHours() // Arizona time
+    const night = h >= 19 || h < 7
+    const [gradient, wind, from] = night ? [7 + ((h + 5) % 12) * 0.3, 3.5, 150]
+      : h < 9 ? [3 - (h - 7) * 1.2, 4.5, 60]
+      : h < 13 ? [-1.6, 7.5, 20]
+      : h < 15 ? [-2, 13, 250]
+      : h < 17 ? [-1.6, 8, 215] // inside the limits, but blowing toward the buildings north-east of Block 3
+      : h < 18 ? [-1.2, 7.5, 20]
+      : [-0.4, 7, 215]
+    const temp = night ? 48 : 58 + Math.min(h - 7, 8) * 2
+    return { timeMs, temp2mF: temp, temp80mF: temp + gradient, wind10Mph: wind, wind80Mph: wind * 1.5, dir10Deg: from, dir80Deg: (from + 10) % 360, cloudPct: 5, isDay: !night, gustMph: wind * 1.3, rhPct: 35 }
+  })
+}
+
+export async function buildPlan(sql: Sql, f: { id: string; name: string; lat: number; lon: number }, jobMinutes: number, example = false): Promise<Plan | { error: string }> {
   const nowMs = Date.now()
   const key = `${f.lat.toFixed(3)},${f.lon.toFixed(3)}`
-  const [obs, hours, terrain] = await Promise.all([stationsNear(sql, f.lat, f.lon, nowMs), fieldHours(sql, `plan-hours:${key}`, f.lat, f.lon), fieldTerrain(sql, key, f.lat, f.lon)])
+  const [obs, liveHours, terrain] = await Promise.all([stationsNear(sql, f.lat, f.lon, nowMs), fieldHours(sql, `plan-hours:${key}`, f.lat, f.lon), fieldTerrain(sql, key, f.lat, f.lon)])
+  const hours = example ? exampleHours(nowMs) : liveHours
   if (!hours.length) return { error: 'The weather model is not reachable right now.' }
   if (!terrain) return { error: 'Terrain data is not reachable right now.' }
 
@@ -138,9 +164,9 @@ export async function buildPlan(sql: Sql, f: { id: string; name: string; lat: nu
 
   const block = BLOCKS.find(b => distanceM(b.lat, b.lon, f.lat, f.lon) < 300)
   const sites = block ? [...block.sites, ...neighbours(block.id)] : []
-  const planned = planHours({ ...f, sites, terrain, hours, nowMs, correction: estimate.correction, sigma, support: estimate.support })
+  const planned = planHours({ ...f, sites, terrain, hours, nowMs, correction: example ? { dTempF: 0, dWindMph: 0 } : estimate.correction, sigma, support: estimate.support })
   return {
-    field: f, generatedMs: nowMs, jobMinutes, terrain, estimate, skill, sigma: { tempF: Math.round(sigma.tempF * 10) / 10, windMph: Math.round(sigma.windMph * 10) / 10 },
+    field: f, generatedMs: nowMs, jobMinutes, example, terrain, estimate, skill, sigma: { tempF: Math.round(sigma.tempF * 10) / 10, windMph: Math.round(sigma.windMph * 10) / 10 },
     stations: pairs.map(p => ({ ...p.o, modelTempF: p.m.tempF, modelWindMph: p.m.windMph })),
     hours: planned, windows: jobWindows(planned, jobMinutes, { nowMs }), sites,
   }
@@ -151,15 +177,15 @@ const PLAN_TTL_MS = 5 * 60_000
 const planMemo = new Map<string, Plan>()
 
 /** The plan for a field, from memory or the database when one was made in the last few minutes, otherwise built now. */
-export async function cachedPlan(sql: Sql, f: { id: string; name: string; lat: number; lon: number }, jobMinutes: number, keep: (p: Promise<unknown>) => void): Promise<Plan | { error: string }> {
-  const key = `plan:${f.lat.toFixed(4)},${f.lon.toFixed(4)}`
+export async function cachedPlan(sql: Sql, f: { id: string; name: string; lat: number; lon: number }, jobMinutes: number, keep: (p: Promise<unknown>) => void, example = false): Promise<Plan | { error: string }> {
+  const key = `plan${example ? '-example' : ''}:${f.lat.toFixed(4)},${f.lon.toFixed(4)}`
   const fresh = (p: Plan | undefined | null): p is Plan => !!p && Date.now() - p.generatedMs < PLAN_TTL_MS
   const dress = (p: Plan): Plan => ({ ...p, field: f, jobMinutes, windows: jobWindows(p.hours, jobMinutes, { nowMs: Date.now() }) })
   const inMemory = planMemo.get(key)
   if (fresh(inMemory)) return dress(inMemory)
   const stored = (await cacheGet(sql, key).catch(() => null)) as Plan | null
   if (fresh(stored)) { planMemo.set(key, stored); return dress(stored) }
-  const built = await buildPlan(sql, f, jobMinutes)
+  const built = await buildPlan(sql, f, jobMinutes, example)
   if (!('error' in built)) { planMemo.set(key, built); keep(cachePut(sql, key, built).catch(() => null)) }
   return built
 }

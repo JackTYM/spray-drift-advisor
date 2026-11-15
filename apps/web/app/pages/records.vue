@@ -72,7 +72,7 @@ const label = (o: string) => (o === 'not-sprayed' ? 'Did not spray' : o === 'wai
       <h2>Alerts sent</h2>
       <div v-if="!alerts.length" class="muted">None yet.</div>
       <div v-for="a in alerts.slice(0, 12)" :key="a.id" class="trigger plain">
-        {{ fmtStamp(a.time) }}: {{ a.kind }} by {{ a.channel }} to {{ a.recipient }}, {{ a.ok ? 'delivered' : 'failed (' + a.detail + ')' }}. <span class="muted">{{ a.title }}</span>
+        {{ fmtStamp(a.time) }}: {{ a.kind }} by {{ a.channel }} to {{ /^\+?\d{7,}$/.test(a.recipient ?? '') ? `a phone ending ${String(a.recipient).slice(-4)}` : a.recipient }}, {{ a.ok ? 'delivered' : 'failed (' + a.detail + ')' }}. <span class="muted">{{ a.title }}</span>
       </div>
     </section>
 

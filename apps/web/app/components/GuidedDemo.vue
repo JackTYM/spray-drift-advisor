@@ -17,7 +17,8 @@ const firstMs = () => props.hours[0]?.timeMs ?? null
 const inversionMs = () =>
   props.hours.find((h) => h.status === 'STOP' && mentions(h, ['inversion', 'warmer']))?.timeMs ?? firstMs()
 
-const buildingHour = () => props.hours.find((h) => mentions(h, ['buildings', 'homes']))
+/** An hour closed by wind toward buildings alone, so the reason on screen matches the script. */
+const buildingHour = () => props.hours.find((h) => mentions(h, ['buildings', 'homes']) && !mentions(h, ['inversion', 'warmer'])) ?? props.hours.find((h) => mentions(h, ['buildings', 'homes']))
 
 const steps = computed(() => {
   const b = buildingHour()
