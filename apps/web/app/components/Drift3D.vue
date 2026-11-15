@@ -9,7 +9,11 @@ import {
   type BlockSnapshot, type Building, type DriftEnv, type Droplet, type Job, type Surroundings,
 } from '@drift/engine'
 
-const props = defineProps<{ blocks: BlockSnapshot[]; selected: string; surroundings: Surroundings | null; droplet: Job['droplet'] }>()
+/** `models` gives the fields to draw (centre and boundary); without it the ranch's own blocks are drawn. */
+const props = defineProps<{ blocks: BlockSnapshot[]; selected: string; surroundings: Surroundings | null; droplet: Job['droplet']; models?: { id: string; lat: number; lon: number; outline: [number, number][] }[] }>()
+const models = computed(() => (props.models?.length ? props.models : BLOCKS))
+/** Footprints are only shipped for the Sahuarita area: farther than this from the field, none are drawn. */
+const FOOTPRINT_RANGE_M = 4000
 
 /** Heights are drawn five times taller than true so a 30 ft tower is visible at map scale. */
 const EXAG = 5
@@ -32,11 +36,11 @@ let sprayerRow = 0, sprayerX = 0, sprayerDir = 1
 /** Real building outlines from OpenStreetMap, fetched once and shipped with the app. */
 const footprints = ref<{ ring: [number, number][]; heightM?: number }[]>([])
 /** Every loaded building, with its bearing and distance from the selected block. */
-const buildings = computed<Building[]>(() => footprints.value.map(f => buildingFromRing(f.ring, model.value.lat, model.value.lon, f.heightM)))
+const buildings = computed<Building[]>(() => footprints.value.map(f => buildingFromRing(f.ring, model.value.lat, model.value.lon, f.heightM)).filter(b => b.distanceM <= FOOTPRINT_RANGE_M))
 const rand = mulberry32(7)
 const g = gaussian(rand)
 
-const model = computed(() => BLOCKS.find(b => b.id === props.selected) ?? BLOCKS[0]!)
+const model = computed(() => models.value.find(b => b.id === props.selected) ?? models.value[0] ?? BLOCKS[0]!)
 const snap = computed(() => props.blocks.find(b => b.id === props.selected) ?? null)
 /** The selected block's real field boundary and tree rows, in metres from its centre. */
 const field = computed(() => localOutline(model.value))
@@ -77,7 +81,7 @@ function setData(id: string, data: unknown) {
 function drawStatic() {
   if (!map || !ready) return
   const rows = [], outlines = []
-  for (const b of BLOCKS) {
+  for (const b of models.value) {
     const status = props.blocks.find(x => x.id === b.id)?.evaluation?.status
     // Rows run east-west, as they do in the imagery, and are clipped to the field boundary.
     for (const r of rowSpans(localOutline(b), ROW_SPACING_M)) rows.push(feature(rect(b.lat, b.lon, r.x0, r.y - 2.5, r.x1, r.y + 2.5), {}))

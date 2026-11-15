@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { BLOCKS, breakTime, confidenceWord, evaluate, towerModelFor, type BlockSnapshot, type RouteField, type Status } from '@drift/engine'
+import { BLOCKS, breakTime, confidenceWord, evaluate, squareOutline, toLngLat, towerModelFor, type BlockSnapshot, type RouteField, type Status, type Surroundings } from '@drift/engine'
 
-const { bestChance, fields, plans, errors, minutesFor, windowsFor, addField, removeField, PRESET_FIELDS } = usePlans()
+const { bestChance, jobFor, fields, plans, errors, minutesFor, windowsFor, addField, removeField, PRESET_FIELDS } = usePlans()
 /** Windows start on 15 minute steps, so one that starts within a step of now is open. */
 const OPEN_SLACK_MS = 15 * 60_000
 const fieldId = ref('block-3')
@@ -53,14 +53,26 @@ const hourStatuses = computed(() => Object.fromEntries(fields.value.map(f => [f.
 
 const stage = ref<'map' | '3d' | 'side'>('map')
 const isBlock = computed(() => BLOCKS.some(b => b.id === field.value.id))
-watch(isBlock, yes => { if (!yes && stage.value === '3d') stage.value = 'map' })
 /** The ranch's blocks as the 3D scene expects them, each showing its estimate for the previewed hour. */
-const sceneBlocks = computed<BlockSnapshot[]>(() => BLOCKS.map(b => {
-  const p = plans.value[b.id]
-  const h = p?.hours.find(x => x.timeMs === hour.value?.timeMs) ?? null
-  return { id: b.id, name: b.name, crop: b.crop, note: b.note, reading: h?.reading ?? null, window: null, sites: b.sites, evaluation: h ? evaluate({ history: [h.reading], nowMs: h.timeMs, sites: b.sites }) : null }
+/** Every field as the 3D scene draws it. A field added by hand has no traced boundary, so it is drawn as a square of its acreage. */
+const sceneModels = computed(() => fields.value.map(f => {
+  const block = BLOCKS.find(b => b.id === f.id)
+  if (block) return { id: f.id, lat: block.lat, lon: block.lon, outline: block.outline }
+  const half = Math.sqrt(jobFor(f.id).acres * 4046.86) / 2
+  return { id: f.id, lat: f.lat, lon: f.lon, outline: squareOutline(half).map(p => toLngLat(f.lat, f.lon, p.x, p.y)) }
 }))
-const surroundings = useSurroundings(computed(() => (isBlock.value ? field.value.id : 'block-3')))
+/** Each field showing its estimate for the previewed hour. */
+const sceneBlocks = computed<BlockSnapshot[]>(() => fields.value.map(f => {
+  const b = BLOCKS.find(x => x.id === f.id)
+  const p = plans.value[f.id]
+  const h = p?.hours.find(x => x.timeMs === hour.value?.timeMs) ?? null
+  const sites = p?.sites ?? b?.sites ?? []
+  return { id: f.id, name: f.name, crop: b?.crop ?? '', note: b?.note ?? '', reading: h?.reading ?? null, window: null, sites, evaluation: h ? { ...evaluate({ history: [h.reading], nowMs: h.timeMs, sites }), status: h.status } : null }
+}))
+const blockSurroundings = useSurroundings(computed(() => (isBlock.value ? field.value.id : 'block-3')))
+/** Addresses and neighbouring crops are only known around the ranch; elsewhere the scene is drawn without them. */
+const noSurroundings = computed<Surroundings>(() => ({ blockId: field.value.id, addresses: [], centerCrop: null, crops: [], elevationFt: null, aroundFt: [], lowGround: null, fetchedMs: 0 }))
+const surroundings = computed(() => (isBlock.value ? blockSurroundings.value : noSurroundings.value))
 
 const tab = ref<'estimate' | 'micro' | 'confidence' | 'route' | 'station'>('estimate')
 const tabs = [{ id: 'route', label: 'Tonight\'s route' }, { id: 'estimate', label: 'Where the estimate comes from' }, { id: 'station', label: 'Against one weather station' }, { id: 'micro', label: 'This field\'s microclimate' }, { id: 'confidence', label: 'How sure, and why' }] as const
@@ -201,12 +213,15 @@ const askContext = computed(() => {
             <h2 v-else>Where spray would go at {{ hour ? fmtWhen(hour.timeMs, now) : '' }}</h2>
             <div class="seg" role="group" aria-label="View">
               <button :class="{ on: stage === 'map' }" @click="stage = 'map'">Map</button>
-              <button v-if="isBlock" :class="{ on: stage === '3d' }" @click="stage = '3d'">3D at this hour</button>
+              <button :class="{ on: stage === '3d' }" @click="stage = '3d'">3D at this hour</button>
               <button :class="{ on: stage === 'side' }" @click="stage = 'side'">Side view</button>
             </div>
           </div>
           <PlanMap v-if="stage === 'map'" :fields="fields" :plan="plan" :selected="field.id" :statuses="hourStatuses" :adding="adding" @select="fieldId = $event" @add="add" />
-          <Drift3D v-else-if="stage === '3d'" :blocks="sceneBlocks" :selected="field.id" :surroundings="surroundings" droplet="medium" />
+          <div v-else-if="stage === '3d'">
+            <Drift3D :key="field.id" :blocks="sceneBlocks" :models="sceneModels" :selected="field.id" :surroundings="surroundings" droplet="medium" />
+            <p v-if="!isBlock" class="muted">This field's boundary has not been traced, so it is drawn as a square of {{ jobFor(field.id).acres }} acres. Buildings and addresses are not loaded for this area.</p>
+          </div>
           <div v-else class="sidestage">
             <TowerScene :reading="hour?.reading ?? null" :delta-f="hourEval?.deltaF ?? 0" :ri="hourEval?.ri ?? 0" droplet="medium" :site="plan?.sites[0] ?? null" />
           </div>
