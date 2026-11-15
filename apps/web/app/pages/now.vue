@@ -24,7 +24,7 @@ const facts = computed(() => downwindFacts(block.value, surroundings.value, buff
 const droplet = computed(() => (whatIf.on.value ? whatIf.quality.value : session.value?.job.droplet ?? whatIf.quality.value))
 
 /** The one large view on the right, and the one piece of evidence under it. */
-const stage = ref<'3d' | 'side' | 'map'>('3d')
+const stage = ref<'3d' | 'map'>('3d')
 const tab = ref<'timeline' | 'profile' | 'wind' | 'hours' | 'compare' | 'numbers'>('timeline')
 const tabs = [
   { id: 'timeline', label: 'Timeline' }, { id: 'profile', label: 'Air profile' }, { id: 'wind', label: 'Wind' },
@@ -141,14 +141,10 @@ async function setSource(value: string) {
             <h2>{{ stage === 'map' ? `What lies around ${blockName}` : `Where spray from ${blockName} would go` }}</h2>
             <div class="seg" role="group" aria-label="View">
               <button :class="{ on: stage === '3d' }" @click="stage = '3d'">3D</button>
-              <button :class="{ on: stage === 'side' }" @click="stage = 'side'">Side view</button>
               <button :class="{ on: stage === 'map' }" @click="stage = 'map'">Map</button>
             </div>
           </div>
           <Drift3D v-if="stage === '3d'" :blocks="blocks" :selected="blockId" :surroundings="surroundings" :droplet="droplet" />
-          <div v-else-if="stage === 'side'" class="sidestage">
-            <TowerScene :reading="block?.reading ?? null" :delta-f="ev?.deltaF ?? 0" :ri="ev?.ri ?? 0" :droplet="droplet" :site="block?.sites[0] ?? null" />
-          </div>
           <BlockMap v-else :blocks="blocks" :selected="blockId" :surroundings="surroundings" @select="blockId = $event" />
         </section>
 

@@ -84,19 +84,13 @@ const allTabs: { id: TabId; label: string; advanced?: boolean }[] = [
   { id: 'profile', label: 'Air profile at this hour', advanced: true }, { id: 'wind', label: 'Wind at this hour', advanced: true }, { id: 'numbers', label: 'The numbers', advanced: true },
 ]
 const tabs = computed(() => allTabs.filter(t => advanced.value || !t.advanced))
-watch(advanced, on => { if (!on && allTabs.find(t => t.id === tab.value)?.advanced) tab.value = 'route' })
+/** Turning Advanced on opens its first chart and brings it into view, so it is clear what was added. */
+const evidence = ref<HTMLElement | null>(null)
+watch(advanced, on => {
+  if (on) { tab.value = 'profile'; nextTick(() => evidence.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })) }
+  else if (allTabs.find(t => t.id === tab.value)?.advanced) tab.value = 'route'
+})
 const volatile = ref(false)
-/** The guided demo sets what the page shows at each step. */
-function demoGo(step: { fieldId?: string; pickedMs?: number | null; stage?: 'map' | '3d'; tab?: string; advanced?: boolean }) {
-  if (step.fieldId && step.fieldId !== fieldId.value) fieldId.value = step.fieldId
-  if (step.advanced !== undefined) advanced.value = step.advanced
-  // After the field change has cleared the previewed hour.
-  nextTick(() => {
-    if (step.pickedMs !== undefined) picked.value = step.pickedMs
-    if (step.stage) stage.value = step.stage
-    if (step.tab) tab.value = step.tab as TabId
-  })
-}
 const tower = computed(() => (plan.value ? towerModelFor(plan.value.terrain) : null))
 const used = computed(() => plan.value?.estimate.stations.filter(s => s.weight >= 0.01) ?? [])
 const signed = (n: number, unit = '') => `${n > 0 ? '+' : ''}${n}${unit}`
@@ -139,7 +133,6 @@ const askContext = computed(() => {
 
 <template>
   <main class="now">
-    <GuidedDemo :hours="plans['block-3']?.hours ?? []" @go="demoGo" />
     <div class="topline">
       <div class="blocktabs" role="tablist" aria-label="Fields, soonest window first">
         <button v-for="x in ordered" :key="x.f.id" role="tab" :aria-selected="x.f.id === fieldId" :class="[x.o.status ?? 'wait', { on: x.f.id === fieldId }]" @click="fieldId = x.f.id">
@@ -264,7 +257,7 @@ const askContext = computed(() => {
           <p v-if="stage !== 'map'" class="badgeline"><SourceBadge kind="estimated" detail="drift model, compares conditions, not a deposition forecast" /></p>
         </section>
 
-        <section v-if="plan" class="card">
+        <section v-if="plan" ref="evidence" class="card">
           <div class="tabs" role="tablist" aria-label="Evidence">
             <button v-for="t in tabs" :key="t.id" role="tab" :aria-selected="tab === t.id" :class="{ on: tab === t.id }" @click="tab = t.id">{{ t.label }}</button>
           </div>

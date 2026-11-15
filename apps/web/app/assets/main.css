@@ -224,7 +224,6 @@ label.check input { width: 22px; height: 22px; min-height: 0; margin: 0; flex: n
 .evidence .card { margin-bottom: 16px; }
 .stagecard .drift3d { height: min(54vh, 560px); }
 .stagecard .blockmap { height: min(54vh, 560px); }
-.sidestage { max-width: 760px; margin: 0 auto; }
 .tabs { display: flex; flex-wrap: wrap; gap: 4px 22px; border-bottom: 1px solid var(--line); margin: -4px 0 16px; }
 .tabs button { font: 500 16px var(--text); color: var(--muted); background: transparent; border: 0; border-bottom: 3px solid transparent; padding: 8px 0 9px; cursor: pointer; margin-bottom: -1px; }
 .tabs button.on { color: var(--ink); border-bottom-color: var(--warm); }

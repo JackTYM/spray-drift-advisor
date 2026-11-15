@@ -180,11 +180,10 @@ function tick() {
   })
 }
 
-function view(kind: 'overview' | 'side' | 'top') {
+function view(kind: 'overview' | 'top') {
   const m = model.value
   const toward = facts.value && !facts.value.calm ? facts.value.towardDeg : 90
   const cam = kind === 'top' ? { pitch: 0, bearing: 0, zoom: 15.1 }
-    : kind === 'side' ? { pitch: 80, bearing: toward - 90, zoom: 15.5 }
     : { pitch: 58, bearing: toward - 125, zoom: 15 }
   map?.easeTo({ center: [m.lon, m.lat], duration: 900, ...cam })
 }
@@ -259,7 +258,6 @@ const pct = (n: number) => `${Math.round((n / done.value) * 100)}%`
     <template v-else>
       <div class="jumps" style="margin-bottom:10px">
         <button @click="view('overview')">Overview</button>
-        <button @click="view('side')">Side on</button>
         <button @click="view('top')">From above</button>
         <span class="muted">Drag to orbit. Trees, tower, air and droplets are drawn {{ EXAG }} times taller than true; buildings about twice.</span>
       </div>
