@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "backtest": "tsx backtest.ts"
+    "backtest": "tsx backtest.ts",
+    "buildings": "tsx fetch-buildings.ts"
   },
   "dependencies": {
     "@drift/engine": "workspace:*",

@@ -4,8 +4,8 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { MapboxOverlay } from '@deck.gl/mapbox'
 import { ScatterplotLayer } from '@deck.gl/layers'
 import {
-  ALOFT_M, BLOCKS, CANOPY_M, LOW_M, SETTLE, batchDrift, driftEnv, ends, gaussian, mulberry32, stepDroplet,
-  type BlockSnapshot, type DriftEnv, type Droplet, type Job, type Surroundings,
+  ALOFT_M, BLOCKS, CANOPY_M, LOW_M, SETTLE, batchDrift, downwindOf, driftEnv, ends, gaussian, mulberry32, stepDroplet,
+  type BlockSnapshot, type Building, type DriftEnv, type Droplet, type Job, type Surroundings,
 } from '@drift/engine'
 
 const props = defineProps<{ blocks: BlockSnapshot[]; selected: string; surroundings: Surroundings | null; droplet: Job['droplet'] }>()
@@ -27,7 +27,9 @@ let ready = false
 let env: DriftEnv | null = null
 let drops: Droplet[] = []
 let deposits: { x: number; y: number; off: boolean }[] = []
-let sprayerY = -HALF + 20, sprayerDir = 1
+let sprayerX = -HALF + 20, sprayerDir = 1
+/** Real building outlines from OpenStreetMap, fetched once and shipped with the app. */
+const buildings = ref<Record<string, Building[]>>({})
 const rand = mulberry32(7)
 const g = gaussian(rand)
 
@@ -67,7 +69,8 @@ function drawStatic() {
   const rows = [], outlines = []
   for (const b of BLOCKS) {
     const status = props.blocks.find(x => x.id === b.id)?.evaluation?.status
-    for (let x = -HALF + 6; x < HALF; x += 12) rows.push(feature(rect(b.lat, b.lon, x - 2.5, -HALF, x + 2.5, HALF), {}))
+    // Rows run east-west, as they do in the imagery.
+    for (let y = -HALF + 6; y < HALF; y += 12) rows.push(feature(rect(b.lat, b.lon, -HALF, y - 2.5, HALF, y + 2.5), {}))
     outlines.push(feature(rect(b.lat, b.lon, -HALF - 6, -HALF - 6, HALF + 6, HALF + 6), { color: status ? statusColor[status] : '#93a5bb' }))
   }
   setData('rows', collection(rows))
@@ -78,12 +81,21 @@ function drawStatic() {
   const hiFt = r ? ends(r).hi.heightFt : 30
   setData('tower', collection([feature(rect(m.lat, m.lon, HALF + 10, -2, HALF + 14, 2), { h: hiFt * 0.3048 * EXAG })]))
 
-  const downwind = new Set((facts.value?.addresses ?? []).map(a => `${a.lat},${a.lon}`))
-  setData('addresses', collection((props.surroundings?.addresses ?? []).map(a => {
-    const dLat = 7 / M_PER_DEG, dLon = 7 / (M_PER_DEG * Math.cos((a.lat * Math.PI) / 180))
-    return feature([[[a.lon - dLon, a.lat - dLat], [a.lon + dLon, a.lat - dLat], [a.lon + dLon, a.lat + dLat], [a.lon - dLon, a.lat + dLat], [a.lon - dLon, a.lat - dLat]]],
-      { color: downwind.has(`${a.lat},${a.lon}`) ? '#f2994a' : '#dfe6ee' })
-  })))
+  // Real outlines where OpenStreetMap has them; otherwise a small box at each county address point.
+  const outlines3d = BLOCKS.flatMap(b => buildings.value[b.id] ?? [])
+  const mine = buildings.value[m.id] ?? []
+  const wind = facts.value && !facts.value.calm ? facts.value.windFromDeg : null
+  const hit = new Set(wind === null ? [] : downwindOf(mine, wind, BUFFER_M))
+  if (outlines3d.length) {
+    setData('addresses', collection(outlines3d.map(o => feature([o.ring], { color: hit.has(o) ? '#f2994a' : '#dfe6ee' }))))
+  } else {
+    const downwind = new Set((facts.value?.addresses ?? []).map(a => `${a.lat},${a.lon}`))
+    setData('addresses', collection((props.surroundings?.addresses ?? []).map(a => {
+      const dLat = 7 / M_PER_DEG, dLon = 7 / (M_PER_DEG * Math.cos((a.lat * Math.PI) / 180))
+      return feature([[[a.lon - dLon, a.lat - dLat], [a.lon + dLon, a.lat - dLat], [a.lon + dLon, a.lat + dLat], [a.lon - dLon, a.lat + dLat], [a.lon - dLon, a.lat - dLat]]],
+        { color: downwind.has(`${a.lat},${a.lon}`) ? '#f2994a' : '#dfe6ee' })
+    })))
+  }
 
   const lid = env?.lidM ?? null
   setData('lid', collection(lid === null ? [] : [feature(rect(m.lat, m.lon, -520, -520, 520, 520), { base: lid * EXAG, top: lid * EXAG + 3 })]))
@@ -96,10 +108,10 @@ function tick() {
   const dt = 0.9
 
   // The sprayer works up and down the rows, blowing droplets into the canopy.
-  sprayerY += sprayerDir * 1.6
-  if (Math.abs(sprayerY) > HALF - 15) sprayerDir *= -1
+  sprayerX += sprayerDir * 1.6
+  if (Math.abs(sprayerX) > HALF - 15) sprayerDir *= -1
   for (let i = 0; i < 5 && drops.length < 2600; i++) {
-    drops.push({ x: -HALF + 40 + (rand() - 0.5) * 12, y: sprayerY + (rand() - 0.5) * 6, z: 1 + rand() * (CANOPY_M - 1), vs: SETTLE[props.droplet] * (0.6 + rand() * 0.8), age: 0, leftLow: false, hit: -1 })
+    drops.push({ x: sprayerX + (rand() - 0.5) * 6, y: -HALF + 42 + (rand() - 0.5) * 12, z: 1 + rand() * (CANOPY_M - 1), vs: SETTLE[props.droplet] * (0.6 + rand() * 0.8), age: 0, leftLow: false, hit: -1 })
     stats.emitted++
   }
   drops = drops.filter(p => {
@@ -154,13 +166,14 @@ function resetAir() {
 
 onMounted(() => {
   const m = model.value
+  $fetch<Record<string, Building[]>>('/buildings.json').then(b => { buildings.value = b; drawStatic() }).catch(() => { /* boxes are used instead */ })
   try {
     maplibregl.setWorkerUrl('/maplibre-gl-worker.mjs')
     map = new maplibregl.Map({
       container: el.value!, center: [m.lon, m.lat], zoom: 15.3, pitch: 58, bearing: -35, maxPitch: 85, attributionControl: { compact: true },
       style: {
         version: 8,
-        sources: { sat: { type: 'raster', tileSize: 256, maxzoom: 16, tiles: ['https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}'], attribution: 'Imagery: USGS The National Map. Addresses: Pima County.' } },
+        sources: { sat: { type: 'raster', tileSize: 256, maxzoom: 16, tiles: ['https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}'], attribution: 'Imagery: USGS The National Map. Buildings: OpenStreetMap contributors. Addresses: Pima County.' } },
         layers: [{ id: 'sat', type: 'raster', source: 'sat' }],
       },
     })
@@ -175,7 +188,7 @@ onMounted(() => {
     for (const id of ['rows', 'outlines', 'tower', 'addresses', 'lid']) map!.addSource(id, { type: 'geojson', data: empty as never })
     map!.addLayer({ id: 'outlines', type: 'line', source: 'outlines', paint: { 'line-color': ['get', 'color'], 'line-width': 4 } })
     map!.addLayer({ id: 'rows', type: 'fill-extrusion', source: 'rows', paint: { 'fill-extrusion-color': '#2c6a45', 'fill-extrusion-height': CANOPY_M * EXAG, 'fill-extrusion-opacity': 0.92 } })
-    map!.addLayer({ id: 'addresses', type: 'fill-extrusion', source: 'addresses', paint: { 'fill-extrusion-color': ['get', 'color'], 'fill-extrusion-height': 4.5 * EXAG, 'fill-extrusion-opacity': 0.95 } })
+    map!.addLayer({ id: 'addresses', type: 'fill-extrusion', source: 'addresses', paint: { 'fill-extrusion-color': ['get', 'color'], 'fill-extrusion-height': 9, 'fill-extrusion-opacity': 0.95 } })
     map!.addLayer({ id: 'tower', type: 'fill-extrusion', source: 'tower', paint: { 'fill-extrusion-color': '#f4f7fb', 'fill-extrusion-height': ['get', 'h'] } })
     map!.addLayer({ id: 'lid', type: 'fill-extrusion', source: 'lid', paint: { 'fill-extrusion-color': '#f2994a', 'fill-extrusion-base': ['get', 'base'], 'fill-extrusion-height': ['get', 'top'], 'fill-extrusion-opacity': 0.3 } })
     overlay = new MapboxOverlay({ interleaved: false, layers: [] })
@@ -208,7 +221,7 @@ const pct = (n: number) => `${Math.round((n / done.value) * 100)}%`
         <button @click="view('overview')">Overview</button>
         <button @click="view('side')">Side on</button>
         <button @click="view('top')">From above</button>
-        <span class="muted">Drag to orbit. Heights are drawn {{ EXAG }} times taller than true.</span>
+        <span class="muted">Drag to orbit. Trees, tower, air and droplets are drawn {{ EXAG }} times taller than true; buildings about twice.</span>
       </div>
       <div ref="el" class="drift3d" role="application" aria-label="Three-dimensional view of the orchard on satellite imagery, with spray droplets carried by the wind" />
       <div class="stats">

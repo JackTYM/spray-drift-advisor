@@ -10,13 +10,14 @@ export const RANCH = {
   groundStationName: 'AZMet Sahuarita',
 }
 
+// Each block is a 300 m square placed on tree rows visible in the USGS imagery.
 // Block centres sit on ground the USDA Cropland Data Layer maps as pecans; elevations are from USGS.
 // The land falls about 26 ft from Block 1 to Block 3, so cold air drains toward Block 3.
 export const BLOCKS: BlockModel[] = [
-  { id: 'block-1', name: 'Block 1', crop: 'Pecans', note: 'Upslope, 2,734 ft', lat: 31.934, lon: -110.96, offsetF: 9, factor: 0.5, turnDeg: 10, sites: [] },
-  { id: 'block-2', name: 'Block 2', crop: 'Pecans', note: 'Mid-slope, 2,720 ft', lat: 31.946, lon: -110.956, offsetF: 7.5, factor: 0.7, turnDeg: 15, sites: [] },
+  { id: 'block-1', name: 'Block 1', crop: 'Pecans', note: 'Upslope, 2,734 ft', lat: 31.934, lon: -110.959, offsetF: 9, factor: 0.5, turnDeg: 10, sites: [] },
+  { id: 'block-2', name: 'Block 2', crop: 'Pecans', note: 'Mid-slope, 2,720 ft', lat: 31.946, lon: -110.9553, offsetF: 7.5, factor: 0.7, turnDeg: 15, sites: [] },
   {
-    id: 'block-3', name: 'Block 3', crop: 'Pecans', note: 'Low ground, 2,708 ft', lat: 31.954, lon: -110.952, offsetF: 0, factor: 1, turnDeg: 20,
+    id: 'block-3', name: 'Block 3', crop: 'Pecans', note: 'Low ground, 2,708 ft', lat: 31.9531, lon: -110.9533, offsetF: 0, factor: 1, turnDeg: 20,
     sites: [{ name: 'the neighboring school', type: 'school', bearingDeg: 95, distanceM: 600 }],
   },
 ]

@@ -94,3 +94,26 @@ export interface Surroundings {
   lowGround: boolean | null
   fetchedMs: number
 }
+
+// ---------- Building outlines (OpenStreetMap) ----------
+
+export interface Building { ring: [number, number][]; lat: number; lon: number; bearingDeg: number; distanceM: number; name: string | null }
+
+export const buildingsQuery = (lat: number, lon: number, radiusM: number): string =>
+  `[out:json][timeout:40];way["building"](around:${radiusM},${lat},${lon});out tags geom;`
+
+/** Outlines as [lon, lat] rings, with the centroid's bearing and distance from the block centre. */
+export function buildingsFromOverpass(json: any, lat: number, lon: number): Building[] {
+  const out: Building[] = []
+  for (const e of json?.elements ?? []) {
+    const g: { lat: number; lon: number }[] = e.geometry ?? []
+    if (g.length < 4) continue
+    const cLat = g.reduce((s, p) => s + p.lat, 0) / g.length
+    const cLon = g.reduce((s, p) => s + p.lon, 0) / g.length
+    out.push({
+      ring: g.map(p => [p.lon, p.lat]), lat: cLat, lon: cLon, name: e.tags?.name ?? null,
+      bearingDeg: bearingDeg(lat, lon, cLat, cLon), distanceM: Math.round(distanceM(lat, lon, cLat, cLon)),
+    })
+  }
+  return out.sort((a, b) => a.distanceM - b.distanceM)
+}

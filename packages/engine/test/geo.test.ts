@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addressesFromPima, compassOf, downwindOf, isLowGround, offsetPoint, parseCdl, toAlbers } from '../src/geo'
+import { addressesFromPima, buildingsFromOverpass, compassOf, downwindOf, isLowGround, offsetPoint, parseCdl, toAlbers } from '../src/geo'
 import { distanceM } from '../src/adapters'
 
 describe('geo', () => {
@@ -36,6 +36,19 @@ describe('geo', () => {
     const pts = [{ bearingDeg: 90, distanceM: 200 }, { bearingDeg: 270, distanceM: 200 }, { bearingDeg: 100, distanceM: 500 }, { bearingDeg: 130, distanceM: 250 }]
     // Wind from the west blows toward the east.
     expect(downwindOf(pts, 270, 300)).toEqual([{ bearingDeg: 90, distanceM: 200 }, { bearingDeg: 130, distanceM: 250 }])
+  })
+  it('reads building outlines with their bearing and distance', () => {
+    const json = { elements: [
+      { type: 'way', tags: { building: 'yes', name: 'Shop' }, geometry: [{ lat: 31.953, lon: -110.95 }, { lat: 31.953, lon: -110.9499 }, { lat: 31.9531, lon: -110.9499 }, { lat: 31.9531, lon: -110.95 }, { lat: 31.953, lon: -110.95 }] },
+      { type: 'way', tags: { building: 'yes' }, geometry: [{ lat: 31.95, lon: -110.95 }] },
+    ] }
+    const b = buildingsFromOverpass(json, 31.953, -110.953)
+    expect(b).toHaveLength(1)
+    expect(b[0]!.name).toBe('Shop')
+    expect(b[0]!.ring[0]).toEqual([-110.95, 31.953])
+    expect(b[0]!.bearingDeg).toBeGreaterThan(85)
+    expect(b[0]!.bearingDeg).toBeLessThan(95)
+    expect(b[0]!.distanceM).toBeGreaterThan(250)
   })
   it('flags a block that sits below its surroundings', () => {
     expect(isLowGround(2690, [2700, 2698, 2702, 2696])).toBe(true)
