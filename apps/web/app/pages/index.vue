@@ -104,14 +104,14 @@ const mode = computed(() => ({ live: 'Live', scenario: 'Scripted night', replay:
           <WhyList :block="block" :facts="facts" :buffer-m="bufferM" @open="open" />
         </section>
 
+        <section v-if="!whatIf.on.value">
+          <h2>Log a spray job</h2>
+          <JobPanel :block-id="blockId" />
+        </section>
+
         <section>
           <h2>{{ whatIf.on.value ? 'If you sprayed in these conditions' : 'If you sprayed now' }}</h2>
           <SprayCost :econ="econ" :acres="acres" :status="ev?.status ?? null" />
-        </section>
-
-        <section v-if="!whatIf.on.value">
-          <h2>Spray job</h2>
-          <JobPanel :block-id="blockId" />
         </section>
 
         <section>

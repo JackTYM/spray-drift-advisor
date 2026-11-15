@@ -18,6 +18,8 @@ export interface SessionState {
   holdReason?: string
   startConditions?: Conditions
   stopConditions?: Conditions
+  /** True when the record was typed in afterwards instead of being logged as the job ran. */
+  enteredLater?: boolean
 }
 
 export const postWatchMs = (job: Job): number => (job.volatility === 'high' ? 4 * 3_600_000 : 30 * 60_000)

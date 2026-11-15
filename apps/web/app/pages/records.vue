@@ -4,6 +4,7 @@ const rows = ref<any[]>([])
 const alerts = ref<any[]>([])
 const evals = ref<any[]>([])
 const error = ref('')
+const adding = ref(false)
 async function load() {
   try {
     const [r, a, e] = await Promise.all([$fetch<any[]>(`${api}/api/spraylog`), $fetch<any[]>(`${api}/api/alerts`), $fetch<any[]>(`${api}/api/log?limit=120`)])
@@ -23,11 +24,15 @@ const label = (o: string) => (o === 'not-sprayed' ? 'Did not spray' : o === 'wai
     <section class="card">
       <div class="cardhead">
         <h1>Spray log</h1>
-        <a class="btn" style="width:auto;margin:0;text-decoration:none;display:inline-flex;align-items:center" :href="`${api}/api/spraylog?format=csv`">Download CSV</a>
+        <div style="display:flex;gap:10px">
+          <button class="btn" style="width:auto;margin:0" @click="adding = !adding">{{ adding ? 'Close' : 'Add a record' }}</button>
+          <a class="btn secondary" style="width:auto;margin:0;text-decoration:none;display:inline-flex;align-items:center" :href="`${api}/api/spraylog?format=csv`">Download CSV</a>
+        </div>
       </div>
-      <p class="muted">Every job and every decision not to spray, with the conditions the tower measured when it started and stopped. The download adds the application details, coordinates and acreage for each row.</p>
+      <p class="muted">Every job and every decision not to spray, with the conditions the tower measured when it started and stopped. Jobs started from the <NuxtLink to="/">Now</NuxtLink> screen are logged as they run; use "Add a record" for anything that was not. The download adds the application details, coordinates and acreage for each row.</p>
+      <RecordForm v-if="adding" @saved="adding = false; load()" @cancel="adding = false" />
       <div v-if="error" class="error" role="alert">{{ error }}</div>
-      <div v-else-if="!rows.length" class="muted">Nothing logged yet. Start a job, or log that you are not spraying, from the Now screen.</div>
+      <div v-else-if="!rows.length && !adding" class="muted">Nothing logged yet. Add a record here, or start a job from the Now screen.</div>
       <div v-else class="tablewrap">
         <table>
           <thead>
@@ -35,7 +40,7 @@ const label = (o: string) => (o === 'not-sprayed' ? 'Did not spray' : o === 'wai
           </thead>
           <tbody>
             <tr v-for="r in rows" :key="r.id">
-              <td><strong>{{ label(r.outcome) }}</strong></td>
+              <td><strong>{{ label(r.outcome) }}</strong><div v-if="r.enteredLater" class="muted">Entered afterwards</div></td>
               <td>{{ r.block }}<div class="muted">{{ r.acres }} acres</div></td>
               <td class="num">{{ r.started }}</td>
               <td class="num">{{ r.stopped || '' }}<div v-if="r.minutes !== null" class="muted">{{ r.minutes }} min</div></td>

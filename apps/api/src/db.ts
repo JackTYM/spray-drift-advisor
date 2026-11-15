@@ -45,6 +45,13 @@ export const sessionStats = (sql: Sql) => sql`
          (select count(*)::int from alerts a where a.session_id = e.session_id) as alerts
   from evaluations e where e.session_id is not null group by e.session_id`
 
+/** The logged evaluation closest to a moment, if the tower was reporting within ten minutes of it. */
+export const evaluationNear = async (sql: Sql, blockId: string, timeIso: string) => (await sql`
+  select e.time, e.status, e.ground_status, e.delta_f, e.ri, e.triggers, r.levels
+  from evaluations e join readings r on r.id = e.reading_id
+  where e.block_id = ${blockId} and e.time between ${timeIso}::timestamptz - interval '10 minutes' and ${timeIso}::timestamptz + interval '10 minutes'
+  order by abs(extract(epoch from (e.time - ${timeIso}::timestamptz))) limit 1`)[0]
+
 export const sessionRows = (sql: Sql, limit: number) => sql`select state from sessions order by started_at desc limit ${limit}`
 export const sessionById = async (sql: Sql, id: string) => (await sql`select state from sessions where id = ${id}`)[0]?.state as SessionState | undefined
 

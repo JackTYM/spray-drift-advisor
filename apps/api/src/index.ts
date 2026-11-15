@@ -4,7 +4,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { BLOCKS, EXAMPLE_COST_PER_ACRE, RANCH, areaAcres, compassOf, ends, localOutline, sprayEconomics, type Conditions, type SessionState, parseReading, readingsFromCsv, summarize, type CsvMapping, type Snapshot } from '@drift/engine'
 import { ask, readLabel } from './ai'
 import { alertPhones, sendLinq } from './alerter'
-import { sessionStats, alertRows, db, insertRecorded, latestBacktest, logRows, saveSubscription, sessionById, sessionRows } from './db'
+import { evaluationNear, upsertSession, sessionStats, alertRows, db, insertRecorded, latestBacktest, logRows, saveSubscription, sessionById, sessionRows } from './db'
 import type { Env } from './env'
 import { blockSurroundings } from './feeds'
 
@@ -99,12 +99,45 @@ async function sprayLog(env: Env) {
       started: when(s.startedMs), stopped: s.outcome === 'not-sprayed' ? '' : when(s.finishedMs),
       minutes: s.outcome !== 'not-sprayed' && s.finishedMs ? Math.round((s.finishedMs - s.startedMs) / 60000) : null,
       reentryAllowed: s.outcome !== 'not-sprayed' && s.finishedMs && s.job.reiHours ? when(s.finishedMs + s.job.reiHours * 3_600_000) : '',
-      job: s.job, overrideReason: s.overrideReason ?? '', holdReason: s.holdReason ?? '',
+      job: s.job, overrideReason: s.overrideReason ?? '', holdReason: s.holdReason ?? '', enteredLater: s.enteredLater ?? false,
       atStart: weather(s.startConditions), atStop: weather(s.stopConditions),
       worstDuring: st ? WORST[Number(st.worst)] : '', evaluations: st ? Number(st.evaluations) : 0, alerts: st ? Number(st.alerts) : 0,
     }
   })
 }
+
+/** Conditions the tower logged around a past moment, for a record entered afterwards. */
+async function conditionsAt(env: Env, blockId: string, timeMs: number): Promise<Conditions | undefined> {
+  const row = await evaluationNear(db(env), blockId, new Date(timeMs).toISOString())
+  if (!row) return undefined
+  const levels = [...(row.levels as Conditions['levels'])].sort((a, b) => a.heightFt - b.heightFt)
+  return {
+    timeMs: Date.parse(row.time as string), status: row.status as Conditions['status'], groundStatus: row.ground_status as Conditions['status'],
+    deltaF: Number(row.delta_f), ri: Number(row.ri), levels: [levels[0]!, levels[levels.length - 1]!], ground: null,
+    reasons: (row.triggers as { text: string }[]).map(t => t.text),
+  }
+}
+
+// A record typed in afterwards: a spray that was not logged as it ran, or a decision not to spray.
+app.post('/api/spraylog', async c => {
+  const b = await c.req.json<{ blockId?: string; outcome?: string; startedMs?: number; finishedMs?: number; job?: SessionState['job']; holdReason?: string }>().catch(() => null)
+  const block = BLOCKS.find(x => x.id === b?.blockId)
+  if (!b || !block) return c.json({ error: 'Choose a block.' }, 400)
+  if (!b.job?.product?.trim()) return c.json({ error: 'Enter the product.' }, 400)
+  if (!b.startedMs || Number.isNaN(b.startedMs)) return c.json({ error: 'Enter the date and time.' }, 400)
+  if (b.startedMs > Date.now() + 60_000) return c.json({ error: 'The start time is in the future.' }, 400)
+  const sprayed = b.outcome !== 'not-sprayed'
+  if (sprayed && (!b.finishedMs || b.finishedMs <= b.startedMs)) return c.json({ error: 'Enter a stop time after the start time.' }, 400)
+  const session: SessionState = {
+    id: crypto.randomUUID(), blockId: block.id, phase: 'closed', job: b.job, interrupted: false, headsUpSent: false, enteredLater: true,
+    startedMs: b.startedMs, finishedMs: sprayed ? b.finishedMs : b.startedMs, outcome: sprayed ? 'sprayed' : 'not-sprayed',
+    holdReason: b.holdReason?.trim() || undefined,
+    startConditions: await conditionsAt(c.env, block.id, b.startedMs),
+    stopConditions: sprayed ? await conditionsAt(c.env, block.id, b.finishedMs!) : undefined,
+  }
+  await upsertSession(db(c.env), session)
+  return c.json({ session })
+})
 
 app.get('/api/spraylog', async c => {
   const rows = await sprayLog(c.env)
@@ -124,7 +157,8 @@ app.get('/api/spraylog', async c => {
     ['Status at stop', r => r.atStop?.status], ['Inversion at stop', r => r.atStop?.inversion], ['Temp difference at stop (F)', r => r.atStop?.tempDiffF],
     ['Lower sensor at stop', r => r.atStop?.low], ['Upper sensor at stop', r => r.atStop?.high],
     ['Worst status during job', r => r.worstDuring], ['Evaluations logged', r => r.evaluations], ['Alerts sent', r => r.alerts],
-    ['Override reason', r => r.overrideReason], ['Reason for not spraying', r => r.holdReason], ['Record ID', r => r.id],
+    ['Override reason', r => r.overrideReason], ['Reason for not spraying', r => r.holdReason],
+    ['How it was recorded', r => (r.enteredLater ? 'Entered afterwards' : 'Logged as it happened')], ['Record ID', r => r.id],
   ]
   const csv = [cols.map(c2 => csvCell(c2[0])).join(','), ...rows.map(r => cols.map(c2 => csvCell(c2[1](r))).join(','))].join('\n')
   return new Response(csv, { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="stillair-spray-log.csv"' } })
