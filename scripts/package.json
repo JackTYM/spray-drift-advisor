@@ -1,0 +1,16 @@
+{
+  "name": "@drift/scripts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "backtest": "tsx backtest.ts"
+  },
+  "dependencies": {
+    "@drift/engine": "workspace:*",
+    "@neondatabase/serverless": "^1.2.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15"
+  }
+}
