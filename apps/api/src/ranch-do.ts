@@ -2,10 +2,12 @@ import { DurableObject } from 'cloudflare:workers'
 import {
   BLOCKS, RANCH, alertText, alertsFor, applyAlert, applyHold, evaluate, forecastReadings, groundFromAnchor, interpolate, inversionLikely,
   mulberry32, nextSafeWindow, postWatchMs, scenarioById, step, virtualTower,
-  ends, type Anchor, type BlockModel, type Conditions, type Demo, type Evaluation, type GroundObs, type Hysteresis, type Job, type Mode, type Reading,
+  ends, type SprayWindow, type Anchor, type BlockModel, type Conditions, type Demo, type Evaluation, type GroundObs, type Hysteresis, type Job, type Mode, type Reading,
   type SafeWindow, type SensitiveSite, type SessionState, type Snapshot, type SourceInfo,
 } from '@drift/engine'
 import { sendAlert } from './alerter'
+import { buildPlan } from './plan'
+import { windowChange } from './plan-alerts'
 import { db, insertEvaluation, resetLog, upsertSession } from './db'
 import type { Env } from './env'
 import { blockSites, historyAnchors, historyGround, liveAnchors, liveGround } from './feeds'
@@ -33,6 +35,8 @@ interface State {
   anchors: Anchor[]
   ground: GroundObs[]
   fetchedMs: number
+  /** Last first window seen per block and when its last planning text went out (older saved state lacks this). */
+  planTexts?: Record<string, { window: SprayWindow | null; textMs: number }>
 }
 
 const freshBlocks = (): Record<string, BlockState> =>
@@ -48,6 +52,7 @@ export class RanchDO extends DurableObject<Env> {
   private rand = mulberry32(42)
   private sql = db(this.env)
   private sitesTriedMs = 0
+  private planTriedMs = 0
   /** Last time a client asked for data; ticking continues for a minute after. */
   private seenMs = 0
   /** Bumped whenever the mode or data set changes, so a tick that was mid-flight can tell it is stale. */
@@ -124,6 +129,32 @@ export class RanchDO extends DurableObject<Env> {
     })())
   }
 
+  /** Live only, at most every 10 minutes, in the background: text the applicator when a block's planned window appears, goes away or moves. */
+  private checkPlans() {
+    if (Date.now() - this.planTriedMs < 10 * 60_000) return
+    this.planTriedMs = Date.now()
+    const gen = this.gen
+    this.ctx.waitUntil((async () => {
+      try {
+        const known = (this.s.planTexts ??= {})
+        for (const b of BLOCKS) {
+          const plan = await buildPlan(this.sql, { id: b.id, name: b.name, lat: b.lat, lon: b.lon }, 45)
+          if ('error' in plan || gen !== this.gen) continue
+          const first = plan.windows[0] ?? null
+          const rec = known[b.id]
+          const nowMs = Date.now()
+          const text = windowChange(b.name, 45, rec?.window, first, nowMs)
+          known[b.id] = { window: first, textMs: rec?.textMs ?? 0 }
+          if (text && nowMs - known[b.id].textMs >= 60 * 60_000) {
+            known[b.id].textMs = nowMs
+            await sendAlert(this.env, this.sql, { kind: 'plan', blockId: b.id, sessionId: null, title: `${b.name} window`, body: text })
+          }
+        }
+        await this.save()
+      } catch (e) { console.error('plan check failed', e) }
+    })())
+  }
+
   // ---------- tick ----------
 
   async alarm() {
@@ -141,6 +172,7 @@ export class RanchDO extends DurableObject<Env> {
       d.simMs += d.stepMin * 60_000
     }
     if (d.mode !== 'scenario') this.loadSites()
+    if (d.mode === 'live') this.checkPlans()
     // The mode changed while feeds were loading: drop this tick and let the next one start clean.
     if (gen !== this.gen) return
 

@@ -291,3 +291,7 @@ label.check input { width: 22px; height: 22px; min-height: 0; margin: 0; flex: n
 .striplegend { margin: 12px 0 0; }
 .blockmap.adding { cursor: crosshair; outline: 2px solid var(--warm); }
 .blocktabs { flex-wrap: wrap; }
+.presetbtn { font: 600 14px var(--text); color: var(--muted); background: transparent; border: 1px dashed var(--line); border-radius: 4px; padding: 8px 12px; cursor: pointer; }
+.presetbtn:hover { color: var(--ink); border-color: var(--ink); }
+.tripcost { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; }
+.tripcost input { width: 110px; min-height: 42px; margin: 0; padding: 6px 10px; text-align: right; }

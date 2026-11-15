@@ -35,6 +35,12 @@ export interface PlanHour {
   lowWindMph: number
   highWindMph: number
   gustMph: number
+  /**
+   * How far each limit is from being broken this hour (positive is safe), and the standard error of each,
+   * so an ensemble can perturb them. windLow/windHigh/gust are mph against sw; inversion is °F against sd.
+   * other is the 0-1 factor for rules outside wind and inversion (1 when none apply).
+   */
+  margins: { windLow: number; windHigh: number; gust: number; inversion: number; sw: number; sd: number; other: number }
 }
 
 export interface PlanInput {
@@ -84,23 +90,28 @@ export function planHours(p: PlanInput): PlanHour[] {
     const deltaF = Math.round((hi.tempF - lo.tempF) * 10) / 10
 
     // Uncertainty grows with hours ahead and where stations cover the field poorly.
-    const grow = (1 + lead / 24) * (1.4 - 0.4 * p.support)
+    // The measured error is for places tens of km from the nearest station: half of it with a station beside the field, half as much again with none in range.
+    const grow = (1 + lead / 24) * (1.5 - p.support)
+    // The error is in the 33 ft wind; the 5 ft wind is a fraction of it, so its margin is put on the same scale.
+    const lowShare = Math.min(Math.max(hi.windMph > 0.5 ? lo.windMph / hi.windMph : 0.7, 0.4), 1)
+    const lowMargin = (lo.windMph - lim.min) / lowShare
     const sw = Math.max(p.sigma.windMph, 0.6) * grow
     const sd = Math.max(p.sigma.tempF, 1) * grow
     // The inversion test is made on the regional gradient this field needs before it inverts, where the uncertainty lives.
     const margin = model.offsetF - (anchor.temp80mF - anchor.temp2mF)
     const gust = Math.max(h.gustMph * windScale, hi.windMph)
-    let confidence = normalCdf((lo.windMph - lim.min) / sw) * normalCdf((lim.max - hi.windMph) / sw) * normalCdf((lim.max * 1.5 - gust) / (sw * 1.5)) * normalCdf(margin / sd)
+    let confidence = normalCdf(lowMargin / sw) * normalCdf((lim.max - hi.windMph) / sw) * normalCdf((lim.max * 1.5 - gust) / (sw * 1.5)) * normalCdf(margin / sd)
     // Rules the numbers above do not cover, such as wind toward a sensitive site or strong direction shear.
     const other = ev.triggers.filter(t => !['inversion', 'inversion-forming', 'wind-low', 'wind-high'].includes(t.rule))
-    if (other.some(t => t.level === 'STOP')) confidence *= 0.15
-    else if (other.length) confidence *= 0.6
+    const otherFactor = other.some(t => t.level === 'STOP') ? 0.15 : other.length ? 0.6 : 1
+    confidence *= otherFactor
 
     const reasons = ev.triggers.map(t => t.text)
     if (gust > lim.max * 1.5 && ev.status === 'GO') reasons.push(`Gusts to ${Math.round(gust)} mph are forecast.`)
     return {
       timeMs: h.timeMs, status: ev.status, confidence: Math.round(confidence * 100) / 100, reasons, reading, deltaF,
       lowWindMph: lo.windMph, highWindMph: hi.windMph, gustMph: Math.round(gust * 10) / 10,
+      margins: { windLow: lowMargin, windHigh: lim.max - hi.windMph, gust: lim.max * 1.5 - gust, inversion: margin, sw, sd, other: otherFactor },
     }
   })
 }

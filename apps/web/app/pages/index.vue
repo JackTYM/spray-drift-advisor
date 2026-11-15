@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { BLOCKS, confidenceWord, evaluate, towerModelFor, type BlockSnapshot, type Status } from '@drift/engine'
+import { BLOCKS, breakTime, confidenceWord, evaluate, towerModelFor, type BlockSnapshot, type RouteField, type Status } from '@drift/engine'
 
-const { fields, plans, errors, minutesFor, windowsFor, addField, removeField, setMinutes } = usePlans()
+const { fields, plans, errors, minutesFor, windowsFor, addField, removeField, PRESET_FIELDS } = usePlans()
+/** Windows start on 15 minute steps, so one that starts within a step of now is open. */
+const OPEN_SLACK_MS = 15 * 60_000
 const fieldId = ref('block-3')
 const field = computed(() => fields.value.find(f => f.id === fieldId.value) ?? fields.value[0]!)
 const plan = computed(() => plans.value[field.value.id] ?? null)
@@ -18,13 +20,21 @@ function outlook(id: string) {
   if (!p) return { state: errors.value[id] ? 'NO DATA' : '…', status: undefined as Status | undefined, startMs: Infinity }
   const w = windowsFor(id)[0]
   if (!w) return { state: 'NONE', status: 'STOP' as Status, startMs: Infinity }
-  const open = w.startMs <= now.value
+  const open = w.startMs <= now.value + OPEN_SLACK_MS
   return { state: open ? 'OPEN' : `${fmtDay(w.startMs)} ${fmtHour(w.startMs)}`.toUpperCase(), status: (open ? 'GO' : 'CAUTION') as Status, startMs: open ? 0 : w.startMs }
 }
 /** Fields in the order a crew could get to them: soonest window first. */
 const ordered = computed(() => fields.value.map(f => ({ f, o: outlook(f.id) })).sort((a, b) => a.o.startMs - b.o.startMs))
 const next = computed(() => windows.value[0] ?? null)
-const openNow = computed(() => !!next.value && next.value.startMs <= now.value)
+const openNow = computed(() => !!next.value && next.value.startMs <= now.value + OPEN_SLACK_MS)
+/** The window as the plain-language answers should read it: an open window has already started. */
+const answerWindow = computed(() => (next.value ? { ...next.value, startMs: openNow.value ? Math.min(next.value.startMs, now.value) : next.value.startMs } : null))
+const tripCostUsd = ref(400)
+/** When the inversion is expected to clear, with the spread across the ensemble. */
+const clears = computed(() => (plan.value ? breakTime(plan.value.hours) : null))
+const routeFields = computed<RouteField[]>(() => fields.value.filter(f => plans.value[f.id]).map(f => ({ id: f.id, name: f.name, lat: f.lat, lon: f.lon, jobMinutes: minutesFor(f.id), windows: windowsFor(f.id) })))
+const presets = computed(() => PRESET_FIELDS.filter(p => !fields.value.some(f => f.name === p.name)))
+function addPreset(p: { name: string; lat: number; lon: number }) { fieldId.value = addField(p.lat, p.lon, p.name).id }
 const pct = (c: number) => `${Math.round(c * 100)}%`
 
 /** The hour being previewed: the one clicked, or the start of the next window, or now. */
@@ -48,8 +58,8 @@ const sceneBlocks = computed<BlockSnapshot[]>(() => BLOCKS.map(b => {
 }))
 const surroundings = useSurroundings(computed(() => (isBlock.value ? field.value.id : 'block-3')))
 
-const tab = ref<'estimate' | 'micro' | 'confidence'>('estimate')
-const tabs = [{ id: 'estimate', label: 'Where the estimate comes from' }, { id: 'micro', label: 'This field\'s microclimate' }, { id: 'confidence', label: 'How sure, and why' }] as const
+const tab = ref<'estimate' | 'micro' | 'confidence' | 'route' | 'station'>('estimate')
+const tabs = [{ id: 'route', label: 'Tonight\'s route' }, { id: 'estimate', label: 'Where the estimate comes from' }, { id: 'station', label: 'Against one weather station' }, { id: 'micro', label: 'This field\'s microclimate' }, { id: 'confidence', label: 'How sure, and why' }] as const
 const tower = computed(() => (plan.value ? towerModelFor(plan.value.terrain) : null))
 const used = computed(() => plan.value?.estimate.stations.filter(s => s.weight >= 0.01) ?? [])
 const signed = (n: number, unit = '') => `${n > 0 ? '+' : ''}${n}${unit}`
@@ -92,6 +102,7 @@ const askContext = computed(() => {
         </button>
       </div>
       <button class="whatifbtn" :class="{ on: adding }" :aria-pressed="adding" @click="adding = !adding; stage = 'map'">{{ adding ? 'Click the map to place the field' : 'Add a field' }}</button>
+      <button v-for="p in presets" :key="p.name" class="presetbtn" @click="addPreset(p)">+ {{ p.name }}</button>
       <div class="clock"><span class="muted">Fields are ordered by soonest window. {{ fmtStamp(now) }}</span></div>
     </div>
 
@@ -106,20 +117,31 @@ const askContext = computed(() => {
           <template v-else-if="next">
             <div class="big">{{ openNow ? 'Open now' : fmtWhen(next.startMs, now) }}</div>
             <div class="why">
-              {{ openNow ? 'Open' : 'Opens' }} until {{ fmtWhen(next.endMs, now) }}. Start by <strong>{{ fmtWhen(next.latestStartMs, now) }}</strong> to finish inside it.
+              {{ openNow ? 'Open' : 'Then open' }} until {{ fmtWhen(next.endMs, now) }}. Start by <strong>{{ fmtWhen(next.latestStartMs, now) }}</strong> to finish inside it.
             </div>
             <div class="conf"><span>Confidence</span><strong>{{ pct(next.confidence) }}</strong><span>{{ confidenceWord(next.confidence) }}</span></div>
           </template>
           <template v-else>
             <div class="big">No window</div>
-            <div class="why">No stretch of {{ minutes }} minutes in the next 48 hours meets every limit with at least 50% confidence.</div>
+            <div class="why">No stretch of {{ minutes }} minutes in the next 48 hours keeps at least a 50% chance of finishing clear.</div>
           </template>
         </div>
 
-        <div class="next joblen">
-          <label for="jobmin">Job length on this field, minutes</label>
-          <input id="jobmin" type="number" min="15" max="600" step="15" :value="minutes" @change="setMinutes(field.id, Number(($event.target as HTMLInputElement).value))">
-        </div>
+        <section v-if="plan">
+          <PlanText :field="field" :job-minutes="minutes" />
+        </section>
+
+        <section>
+          <h2>The job</h2>
+          <JobInputs :field-id="field.id" />
+        </section>
+
+        <section v-if="plan">
+          <h2>What you need to know</h2>
+          <PlanAnswers :hours="plan.hours" :window="answerWindow" :job-minutes="minutes" :now-ms="now" :trip-cost-usd="tripCostUsd" />
+          <p v-if="clears" class="muted" style="margin:10px 0 0">The warm-over-cool layer is expected to clear around <strong style="color:var(--ink)">{{ fmtWhen(clears.p50Ms, now) }}</strong> (most likely between {{ fmtTime(clears.p10Ms) }} and {{ fmtTime(clears.p90Ms) }}). Read from this plan's hourly estimate across 200 simulated outcomes, not from a heating model.</p>
+          <label class="tripcost">Cost of a wasted trip (crew, fuel, setup), $<input v-model.number="tripCostUsd" type="number" min="0" step="50"></label>
+        </section>
 
         <section v-if="windows.length > 1">
           <h2>Later windows</h2>
@@ -185,7 +207,10 @@ const askContext = computed(() => {
             <button v-for="t in tabs" :key="t.id" role="tab" :aria-selected="tab === t.id" :class="{ on: tab === t.id }" @click="tab = t.id">{{ t.label }}</button>
           </div>
 
-          <div v-if="tab === 'estimate'">
+          <NightPlan v-if="tab === 'route'" :fields="routeFields" :now-ms="now" @select="fieldId = $event" />
+          <PlanValidation v-else-if="tab === 'station'" :skill="plan.skill" :stations="plan.skill.n" />
+
+          <div v-else-if="tab === 'estimate'">
             <p class="mapfact" style="margin-top:0">
               There is no weather station on this field. The forecast model alone says <strong>{{ plan.estimate.model.tempF }}°F</strong> and <strong>{{ plan.estimate.model.windMph }} mph</strong> here right now.
               <template v-if="used.length">Comparing the model with what {{ used.length }} nearby {{ used.length === 1 ? 'station measures' : 'stations measure' }} moves that to <strong>{{ plan.estimate.tempF }}°F</strong> and <strong>{{ plan.estimate.windMph }} mph</strong>.</template>
@@ -228,7 +253,7 @@ const askContext = computed(() => {
               <span>is the typical error of this method right now, with ±{{ plan.sigma.windMph }} mph on wind.
                 <span class="muted">Measured by hiding each of {{ plan.skill.n }} stations in turn and estimating it from the others: off by {{ plan.skill.fusedTempF }}°F and {{ plan.skill.fusedWindMph }} mph on average. The forecast model alone was off by {{ plan.skill.modelTempF }}°F and {{ plan.skill.modelWindMph }} mph.</span></span>
             </div>
-            <p>Confidence for an hour is the chance that wind stays inside both limits and no inversion forms, given that error. It falls as the forecast looks further ahead, where stations cover the field poorly (coverage here: {{ pct(plan.estimate.support) }}), and when a value sits close to a limit. A window's confidence is that of its weakest hour.</p>
+            <p>Confidence for an hour is the chance that wind stays inside both limits and no inversion forms, given that error. It falls as the forecast looks further ahead and when a value sits close to a limit. The error is taken as half the measured figure when a station sits beside the field and one and a half times it when none is in range (coverage here: {{ pct(plan.estimate.support) }}); that scaling is our assumption. A window's confidence is for the whole job: the share of 200 simulated outcomes, with errors that carry over from hour to hour, in which every hour of the job stays inside the limits.</p>
             <p class="muted">This is a confidence figure built from today's measured error. It has not been checked against a season of outcomes, so read it as a guide to which windows are firm and which are marginal, not as a guaranteed probability.</p>
           </div>
         </section>

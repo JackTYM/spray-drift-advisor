@@ -4,10 +4,11 @@ import Anthropic from '@anthropic-ai/sdk'
 import { BLOCKS, EXAMPLE_COST_PER_ACRE, RANCH, areaAcres, compassOf, ends, localOutline, sprayEconomics, type Conditions, type SessionState, parseReading, readingsFromCsv, summarize, type CsvMapping, type Snapshot } from '@drift/engine'
 import { ask, readLabel } from './ai'
 import { alertPhones, sendLinq } from './alerter'
-import { evaluationNear, upsertSession, sessionStats, alertRows, db, insertRecorded, latestBacktest, logRows, saveSubscription, sessionById, sessionRows } from './db'
+import { evaluationNear, insertAlert, upsertSession, sessionStats, alertRows, db, insertRecorded, latestBacktest, logRows, saveSubscription, sessionById, sessionRows } from './db'
 import type { Env } from './env'
 import { blockSurroundings } from './feeds'
 import { buildPlan } from './plan'
+import { planText } from './plan-alerts'
 
 export { RanchDO } from './ranch-do'
 
@@ -172,6 +173,28 @@ app.get('/api/plan', async c => {
   const jobMinutes = Math.min(Math.max(Number(c.req.query('jobMin')) || 45, 15), 600)
   const plan = await buildPlan(db(c.env), { id: c.req.query('id') ?? 'field', name: c.req.query('name') ?? 'Field', lat, lon }, jobMinutes)
   return c.json(plan, 'error' in plan ? 502 : 200)
+})
+
+/** Texts the first window of a field's plan to every alert phone: POST { id, name, lat, lon, jobMinutes }. */
+app.post('/api/plan/text', async c => {
+  const b = await c.req.json<{ id?: string; name?: string; lat?: number; lon?: number; jobMinutes?: number }>().catch(() => null)
+  const lat = Number(b?.lat), lon = Number(b?.lon)
+  if (!(lat > 24 && lat < 50 && lon > -125 && lon < -66)) return c.json({ error: 'Give a latitude and longitude inside the continental United States.' }, 400)
+  const jobMinutes = Math.min(Math.max(Number(b?.jobMinutes) || 45, 15), 600)
+  const field = { id: String(b?.id ?? 'field'), name: String(b?.name ?? 'Field').slice(0, 80), lat, lon }
+  const sql = db(c.env)
+  const plan = await buildPlan(sql, field, jobMinutes)
+  if ('error' in plan) return c.json({ sent: 0, text: '', error: plan.error }, 502)
+  const text = planText(field.name, jobMinutes, plan.windows[0] ?? null, Date.now())
+  const phones = alertPhones(c.env)
+  if (!c.env.LINQ_API_KEY || !phones.length) return c.json({ sent: 0, text, error: 'Texting is not set up on this server.' })
+  let sent = 0
+  for (const phone of phones) {
+    const r = await sendLinq(c.env, phone, text)
+    if (r.ok) sent++
+    await insertAlert(sql, { sessionId: null, blockId: field.id, kind: 'plan', channel: 'imessage', recipient: phone, ...r, title: `${field.name} plan`, body: text }).catch(e => console.error('alert record failed', e))
+  }
+  return c.json(sent ? { sent, text } : { sent, text, error: 'The text could not be delivered.' })
 })
 
 app.get('/api/alerts', async c => c.json(await alertRows(db(c.env), null, 30)))

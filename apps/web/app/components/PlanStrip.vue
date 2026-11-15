@@ -4,7 +4,7 @@ import type { PlanHour, SprayWindow } from '@drift/engine'
 /** The hours ahead for one field: colour is the rule outcome, bar height is the confidence that every limit is met. */
 const props = defineProps<{ hours: PlanHour[]; windows: SprayWindow[]; selected: number }>()
 const emit = defineEmits<{ select: [timeMs: number] }>()
-const inWindow = (h: PlanHour) => props.windows.some(w => h.timeMs >= w.startMs && h.timeMs < w.endMs)
+const inWindow = (h: PlanHour) => props.windows.some(w => h.timeMs + 3_600_000 > w.startMs && h.timeMs < w.endMs)
 /** A day label where the date changes. */
 const dayAt = (i: number) => (i === 0 || fmtDay(props.hours[i]!.timeMs) !== fmtDay(props.hours[i - 1]!.timeMs) ? fmtDay(props.hours[i]!.timeMs) : '')
 </script>

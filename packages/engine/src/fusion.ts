@@ -90,6 +90,9 @@ export interface Skill {
   fusedTempF: number
   modelWindMph: number
   fusedWindMph: number
+  /** Mean absolute error when each station is estimated by just copying its nearest other station. */
+  nearestTempF: number
+  nearestWindMph: number
 }
 
 /**
@@ -97,12 +100,19 @@ export interface Skill {
  * This is the honest measure of how well the method works where there is no station.
  */
 export function leaveOneOut(list: Residual[]): Skill {
-  let mt = 0, ft = 0, mw = 0, fw = 0
+  let mt = 0, ft = 0, mw = 0, fw = 0, nt = 0, nw = 0
   for (const r of list) {
+    let near: StationObs | undefined, best = Infinity
+    for (const o of list) {
+      if (o.station.id === r.station.id) continue
+      const d = distanceM(r.station.lat, r.station.lon, o.station.lat, o.station.lon)
+      if (d < best) { best = d; near = o.station }
+    }
+    if (near) { nt += Math.abs(near.tempF - r.station.tempF); nw += Math.abs(near.windMph - r.station.windMph) }
     const est = fuse(r.station, r.model, list, r.station.id)
     mt += Math.abs(r.model.tempF - r.station.tempF); ft += Math.abs(est.tempF - r.station.tempF)
     mw += Math.abs(r.model.windMph - r.station.windMph); fw += Math.abs(est.windMph - r.station.windMph)
   }
   const n = list.length || 1
-  return { n: list.length, modelTempF: r1(mt / n), fusedTempF: r1(ft / n), modelWindMph: r1(mw / n), fusedWindMph: r1(fw / n) }
+  return { n: list.length, modelTempF: r1(mt / n), fusedTempF: r1(ft / n), modelWindMph: r1(mw / n), fusedWindMph: r1(fw / n), nearestTempF: r1(nt / n), nearestWindMph: r1(nw / n) }
 }
