@@ -26,11 +26,12 @@ function build(id: string, name: string, startIso: string, rows: Row[], marks: S
 
 export const SCENARIOS: Scenario[] = [
   build('dawn-inversion', 'Dawn inversion the ground station misses', '2026-11-17T05:00:00-07:00', [
-    [0, 46, 5.5, 6.5, 275, 5, false],
-    [90, 45, 8.5, 6.5, 275, 5, false],
-    [120, 46, 8.5, 6.5, 275, 5, true],
-    [240, 58, -1.4, 6.5, 200, 5, true],
-    [600, 72, -1.4, 7.5, 200, 5, true],
+    // A light southerly at dawn carries the trapped spray north, toward the homes on Sahuarita Road.
+    [0, 46, 5.5, 6.5, 190, 5, false],
+    [90, 45, 8.5, 6.5, 190, 5, false],
+    [120, 46, 8.5, 6.5, 190, 5, true],
+    [240, 58, -1.4, 6.5, 100, 5, true],
+    [600, 72, -1.4, 7.5, 100, 5, true],
   ], [{ label: 'Dawn', min: 0 }, { label: 'Strongest', min: 90 }, { label: 'Sunrise', min: 120 }, { label: 'Breaking', min: 210 }, { label: 'Window', min: 245 }]),
   build('session-night', 'Inversion forms during a job, clears after sunrise', '2026-11-16T17:30:00-07:00', [
     [0, 66, -1.4, 6, 250, 5, true],

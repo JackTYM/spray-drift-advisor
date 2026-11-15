@@ -26,7 +26,8 @@ export const BLOCKS: BlockModel[] = [
     { offsetF: 7.5, factor: 0.7, turnDeg: 15, sites: [] }),
   field('block-3', 'Block 3', 'Low ground, 2,708 ft',
     [[-110.9552, 31.9555], [-110.9537, 31.9555], [-110.9537, 31.9551], [-110.9533, 31.9551], [-110.9533, 31.952], [-110.9555, 31.952]],
-    { offsetF: 0, factor: 1, turnDeg: 20, sites: [{ name: 'the neighboring school', type: 'school', bearingDeg: 95, distanceM: 600 }] }),
+    { offsetF: 0, factor: 1, turnDeg: 20, // Real: twelve county address points on Sahuarita Road, the nearest 156 m north of the block centre.
+    sites: [{ name: 'the homes on Sahuarita Road', type: 'homes', bearingDeg: 5, distanceM: 156 }] }),
 ]
 
 export const PRODUCTS = [
