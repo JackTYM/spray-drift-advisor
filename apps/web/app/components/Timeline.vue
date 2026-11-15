@@ -3,7 +3,7 @@ import type { Status } from '@drift/engine'
 
 interface Row { time: string; status: Status; ground_status?: Status; levels: { heightFt: number; tempF: number }[] | null }
 const props = defineProps<{ history: Row[]; forecast: { timeMs: number; status: Status }[] }>()
-const W = 640, H = 262, TOP = 12, BOTTOM = 130, GROUND_ROW = 158, STRIP = 196
+const W = 1000, H = 262, TOP = 12, BOTTOM = 130, GROUND_ROW = 158, STRIP = 196
 const color: Record<Status, string> = { GO: '#2fbf71', CAUTION: '#f0b429', STOP: '#d93a26' }
 
 const points = computed(() => sinceLastJump(props.history.filter(r => r.levels && r.levels.length >= 2).map(r => {

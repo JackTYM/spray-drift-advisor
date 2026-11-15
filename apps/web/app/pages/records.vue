@@ -1,13 +1,20 @@
 <script setup lang="ts">
 const api = useRuntimeConfig().public.apiBase as string
 const rows = ref<any[]>([])
+const alerts = ref<any[]>([])
+const evals = ref<any[]>([])
 const error = ref('')
 async function load() {
-  try { rows.value = await $fetch<any[]>(`${api}/api/spraylog`); error.value = '' } catch { error.value = 'The spray log could not be loaded.' }
+  try {
+    const [r, a, e] = await Promise.all([$fetch<any[]>(`${api}/api/spraylog`), $fetch<any[]>(`${api}/api/alerts`), $fetch<any[]>(`${api}/api/log?limit=120`)])
+    rows.value = r; alerts.value = a; evals.value = e; error.value = ''
+  } catch { error.value = 'The records could not be loaded.' }
 }
 let timer: ReturnType<typeof setInterval>
 onMounted(() => { load(); timer = setInterval(load, 10_000) })
 onBeforeUnmount(() => clearInterval(timer))
+const levels = (row: any) => (row.levels ?? []).map((l: any) => `${l.heightFt} ft: ${l.tempF}°F, ${l.windMph} mph`).join(', ')
+const blockOf = (id: string) => id.replace('block-', 'Block ')
 const label = (o: string) => (o === 'not-sprayed' ? 'Did not spray' : o === 'waiting' ? 'Waiting' : 'Sprayed')
 </script>
 
@@ -20,7 +27,7 @@ const label = (o: string) => (o === 'not-sprayed' ? 'Did not spray' : o === 'wai
       </div>
       <p class="muted">Every job and every decision not to spray, with the conditions the tower measured when it started and stopped. The download adds the application details, coordinates and acreage for each row.</p>
       <div v-if="error" class="error" role="alert">{{ error }}</div>
-      <div v-else-if="!rows.length" class="muted">Nothing logged yet. Start a job, or log that you are not spraying, from the Applicator screen.</div>
+      <div v-else-if="!rows.length" class="muted">Nothing logged yet. Start a job, or log that you are not spraying, from the Now screen.</div>
       <div v-else class="tablewrap">
         <table>
           <thead>
@@ -55,6 +62,33 @@ const label = (o: string) => (o === 'not-sprayed' ? 'Did not spray' : o === 'wai
           </tbody>
         </table>
       </div>
+    </section>
+    <section class="card">
+      <h2>Alerts sent</h2>
+      <div v-if="!alerts.length" class="muted">None yet.</div>
+      <div v-for="a in alerts.slice(0, 12)" :key="a.id" class="trigger plain">
+        {{ fmtStamp(a.time) }}: {{ a.kind }} by {{ a.channel }} to {{ a.recipient }}, {{ a.ok ? 'delivered' : 'failed (' + a.detail + ')' }}. <span class="muted">{{ a.title }}</span>
+      </div>
+    </section>
+
+    <section class="card">
+      <details>
+        <summary><h2 style="display:inline">Every evaluation ({{ evals.length }} most recent)</h2></summary>
+        <div class="tablewrap" style="margin-top:12px">
+          <table>
+            <thead><tr><th>Time</th><th>Block</th><th>Status</th><th>Ground only</th><th>Triggered by</th><th>Readings</th><th>Ri</th></tr></thead>
+            <tbody>
+              <tr v-for="row in evals" :key="row.id">
+                <td class="num">{{ fmtStamp(row.time) }}</td><td>{{ blockOf(row.block_id) }}</td>
+                <td><span class="chip" :class="row.status">{{ row.status }}</span></td>
+                <td><span class="chip" :class="row.ground_status">{{ row.ground_status }}</span></td>
+                <td>{{ row.triggers.map((t: any) => t.text).join(' ') || 'None' }}</td>
+                <td class="num">{{ levels(row) }}</td><td class="num">{{ Number(row.ri).toFixed(2) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
     </section>
   </main>
 </template>

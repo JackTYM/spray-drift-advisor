@@ -1,212 +1,135 @@
 <script setup lang="ts">
-import { BLOCKS, PRODUCTS, type Job } from '@drift/engine'
-import type { LabelReading } from '~/components/LabelReader.vue'
+import { BLOCKS, scenarioById } from '@drift/engine'
 
 const { snap, api } = useRanch()
 const route = useRoute()
 const blockId = ref(String(route.query.block ?? 'block-3'))
 const block = computed(() => snap.value?.blocks.find(b => b.id === blockId.value) ?? null)
 const ev = computed(() => block.value?.evaluation ?? null)
+const session = computed(() => snap.value?.sessions.find(s => s.blockId === blockId.value && s.phase !== 'closed') ?? null)
 const surroundings = useSurroundings(blockId)
 const bufferM = useBufferM()
 const facts = computed(() => downwindFacts(block.value, surroundings.value, bufferM.value))
-const session = computed(() => snap.value?.sessions.find(s => s.blockId === blockId.value && s.phase !== 'closed') ?? null)
+const droplet = computed(() => session.value?.job.droplet ?? 'fine')
 
-const job = reactive<Job>({ product: PRODUCTS[0].name, volatility: PRODUCTS[0].volatility, droplet: 'medium' })
-watch(() => job.product, p => { job.volatility = products.value.find(x => x.name === p)?.volatility ?? job.volatility })
-const labelMin = ref<number | null>(null)
-const labelMax = ref<number | null>(null)
-const overrideReason = ref('')
-const holdReason = ref('')
-/** Details for the spray record. The applicator's own details are remembered on this phone. */
-const details = reactive({ applicatorName: '', licenseNo: '', epaRegNo: '', activeIngredient: '', ratePerAcre: '', targetPest: '', reiHours: null as number | null, sensitiveAreasChecked: false })
-onMounted(() => {
-  try { Object.assign(details, JSON.parse(localStorage.getItem('applicator') ?? '{}')) } catch { /* nothing saved */ }
-})
-watch(() => [details.applicatorName, details.licenseNo], () => {
-  try { localStorage.setItem('applicator', JSON.stringify({ applicatorName: details.applicatorName, licenseNo: details.licenseNo })) } catch { /* storage unavailable */ }
-})
-const products = ref(PRODUCTS.map(p => ({ ...p })))
-/** Fills the job form from a label the applicator has checked. */
-function useLabel(l: LabelReading) {
-  if (l.productName) {
-    if (!products.value.some(p => p.name === l.productName)) products.value.push({ name: l.productName, volatility: l.volatility ?? 'low' })
-    job.product = l.productName
-  }
-  if (l.volatility) job.volatility = l.volatility
-  if (l.dropletSize) job.droplet = l.dropletSize
-  if (l.windMinMph !== null) labelMin.value = l.windMinMph
-  if (l.windMaxMph !== null) labelMax.value = l.windMaxMph
-  if (l.bufferFt !== null) bufferM.value = Math.round(l.bufferFt * 0.3048)
-  if (l.epaRegNo) details.epaRegNo = l.epaRegNo
-  if (l.activeIngredients.length) details.activeIngredient = l.activeIngredients.join(', ')
+/** The one large view on the right, and the one piece of evidence under it. */
+const stage = ref<'3d' | 'side' | 'map'>('3d')
+const tab = ref<'timeline' | 'profile' | 'wind' | 'hours' | 'compare' | 'numbers'>('timeline')
+const tabs = [
+  { id: 'timeline', label: 'Timeline' }, { id: 'profile', label: 'Air profile' }, { id: 'wind', label: 'Wind' },
+  { id: 'hours', label: 'Best hours' }, { id: 'compare', label: 'Ground station vs two heights' }, { id: 'numbers', label: 'The numbers' },
+] as const
+function open(what: 'profile' | 'wind' | 'map') {
+  if (what === 'map') stage.value = 'map'
+  else tab.value = what
 }
-const error = ref('')
-const pushState = ref('')
 
-async function call(path: string, body: object) {
-  error.value = ''
-  try {
-    const r = await $fetch<{ error?: string }>(`${api}${path}`, { method: 'POST', body })
-    if (r.error) error.value = r.error
-    else overrideReason.value = ''
-  } catch { error.value = 'Could not reach the server.' }
+const history = ref<{ history: any[]; forecast: any[] }>({ history: [], forecast: [] })
+const backtest = ref<any>(null)
+async function refresh() {
+  try { history.value = await $fetch<any>(`${api}/api/blocks/${blockId.value}/history`) } catch { /* keep the last data */ }
 }
-const jobBody = (): Job => ({
-  ...job, labelMinWindMph: labelMin.value ?? undefined, labelMaxWindMph: labelMax.value ?? undefined,
-  applicatorName: details.applicatorName || undefined, licenseNo: details.licenseNo || undefined, epaRegNo: details.epaRegNo || undefined,
-  activeIngredient: details.activeIngredient || undefined, ratePerAcre: details.ratePerAcre || undefined, targetPest: details.targetPest || undefined,
-  reiHours: details.reiHours ?? undefined, sensitiveAreasChecked: details.sensitiveAreasChecked,
+let timer: ReturnType<typeof setInterval>
+onMounted(async () => {
+  refresh()
+  timer = setInterval(refresh, 5000)
+  backtest.value = await $fetch(`${api}/api/backtest`).catch(() => null)
 })
-const held = ref('')
-async function holdOff() {
-  await call('/api/sessions', { blockId: blockId.value, job: jobBody(), phase: 'not-sprayed', holdReason: holdReason.value || undefined })
-  if (!error.value) { held.value = `Logged at ${snap.value ? fmtTime(snap.value.nowMs) : 'now'}: not spraying ${block.value?.name ?? ''}.`; holdReason.value = '' }
-}
-const create = (phase: 'waiting' | 'spraying') => call('/api/sessions', { blockId: blockId.value, job: jobBody(), phase, overrideReason: overrideReason.value || undefined })
-const start = () => call(`/api/sessions/${session.value!.id}/start`, { overrideReason: overrideReason.value || undefined })
-const finish = () => call(`/api/sessions/${session.value!.id}/finish`, {})
+onBeforeUnmount(() => clearInterval(timer))
+watch(blockId, refresh)
 
-function beep() {
-  const ctx = new AudioContext()
-  const osc = ctx.createOscillator()
-  osc.frequency.value = 880
-  osc.connect(ctx.destination)
-  osc.start()
-  osc.stop(ctx.currentTime + 0.6)
-}
-watch(() => ev.value?.status, (now, before) => {
-  if (now === 'STOP' && before && before !== 'STOP' && session.value) { navigator.vibrate?.([300, 150, 300]); beep() }
-})
-
-async function enablePush() {
-  try {
-    const reg = await navigator.serviceWorker.register('/sw.js')
-    if ((await Notification.requestPermission()) !== 'granted') { pushState.value = 'Notifications were not allowed.'; return }
-    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: useRuntimeConfig().public.vapidPublicKey as string })
-    await $fetch(`${api}/api/push/subscribe`, { method: 'POST', body: { role: 'applicator', subscription: sub.toJSON() } })
-    pushState.value = 'Alerts are on for this device.'
-  } catch { pushState.value = 'Could not turn on alerts. On iPhone, add this page to the home screen first.' }
-}
+const marks = computed(() => (snap.value?.demo.mode === 'scenario' ? scenarioById(snap.value.demo.scenarioId).marks : []))
+const jump = (min: number) => $fetch(`${api}/api/demo`, { method: 'POST', body: { seekMin: min } }).then(refresh)
+const blockName = computed(() => BLOCKS.find(b => b.id === blockId.value)?.name ?? '')
+const feeds = computed(() => (snap.value?.sources ?? []).filter(s => s.role === 'Tower' || s.role === 'Ground station').map(s => `${s.role}: ${s.kind}, ${s.adapter}`).join('. '))
+const mode = computed(() => ({ live: 'Live', scenario: 'Scripted night', replay: 'Replay of a real night' })[snap.value?.demo.mode ?? 'live'])
 </script>
 
 <template>
-  <main class="phone">
-    <div class="blockpick">
-      <select v-model="blockId" aria-label="Block">
-        <option v-for="b in BLOCKS" :key="b.id" :value="b.id">{{ b.name }}, {{ b.note.toLowerCase() }}</option>
-      </select>
+  <main class="now">
+    <div class="topline">
+      <div class="blocktabs" role="tablist" aria-label="Block">
+        <button v-for="b in snap?.blocks ?? []" :key="b.id" role="tab" :aria-selected="b.id === blockId" :class="[b.evaluation?.status ?? 'wait', { on: b.id === blockId }]" @click="blockId = b.id">
+          <span class="name">{{ b.name }}</span><span class="state">{{ b.evaluation?.status ?? 'WAIT' }}</span>
+        </button>
+      </div>
+      <div v-if="marks.length" class="jumps" style="margin:0">
+        <span class="muted">Jump to</span>
+        <button v-for="m in marks" :key="m.label" @click="jump(m.min)">{{ m.label }}</button>
+      </div>
+      <div class="muted clock">{{ mode }}, {{ snap ? fmtStamp(snap.nowMs) : '' }}</div>
     </div>
 
-    <StatusBanner :evaluation="ev" :where="snap && block ? `${block.name} at ${fmtTime(snap.nowMs)}` : undefined" />
-
-    <TowerScene :reading="block?.reading ?? null" :delta-f="ev?.deltaF ?? 0" :ri="ev?.ri ?? 0"
-      :droplet="session?.job.droplet ?? job.droplet" :site="block?.sites[0] ?? null" />
-
-    <section class="sect">
-      <h2>Is the air mixing?</h2>
-      <MixingGauge :ri="ev?.ri ?? 0" />
-    </section>
-
-    <section class="sect">
-      <h2>Why</h2>
-      <TriggerList :triggers="ev?.triggers ?? []" />
-    </section>
-
-    <section v-if="facts" class="sect">
-      <h2>Downwind</h2>
-      <template v-if="facts.calm">Wind at 5 ft is near calm, so drift has no clear direction.</template>
-      <template v-else>
-        Spray would be carried toward the <strong>{{ facts.dir }}</strong>.
-        <strong>{{ facts.addresses.length }}</strong> {{ facts.addresses.length === 1 ? 'address' : 'addresses' }} within {{ bufferM }} m that way<template v-if="facts.crop">, over land mapped as {{ facts.crop.toLowerCase() }}</template>.
-      </template>
-      <div class="muted" style="margin-top:6px">{{ bufferM === BUFFER_M ? `${BUFFER_M} m is an example buffer; read the label to use the real one.` : `${bufferM} m is the buffer read from the label.` }} <NuxtLink to="/dashboard">See the map</NuxtLink></div>
-    </section>
-
-    <div class="pair sect" style="padding:0">
-      <div>
-        <div class="label">Ground station alone</div>
-        <span class="chip" :class="ev?.groundOnly.status ?? 'CAUTION'">{{ ev?.groundOnly.status ?? 'WAIT' }}</span>
-        <div v-if="snap?.ground" class="muted" style="margin-top:8px">
-          {{ snap.ground.tempF }}°F, wind {{ snap.ground.windMph }} mph from the {{ compass(snap.ground.windDirDeg) }}. It cannot see the air above it.
+    <div class="split">
+      <aside class="decide">
+        <StatusBanner :evaluation="ev" :where="block ? `${block.name}, ${block.note.toLowerCase()}` : undefined" />
+        <div class="next">
+          <span class="muted">Next safe window</span>
+          <strong v-if="ev?.status === 'GO'">Open now</strong>
+          <strong v-else-if="block?.window">{{ fmtTime(block.window.startMs) }} to {{ fmtTime(block.window.endMs) }}</strong>
+          <strong v-else>None in the next 36 hours</strong>
         </div>
+
+        <section>
+          <h2>Why</h2>
+          <WhyList :block="block" :facts="facts" :buffer-m="bufferM" @open="open" />
+        </section>
+
+        <section>
+          <h2>Spray job</h2>
+          <JobPanel :block-id="blockId" />
+        </section>
+
+        <section>
+          <h2>Ask Stillair</h2>
+          <AskBox />
+        </section>
+      </aside>
+
+      <div class="evidence">
+        <section class="card stagecard">
+          <div class="cardhead">
+            <h2>{{ stage === 'map' ? `What lies around ${blockName}` : `Where spray from ${blockName} would go` }}</h2>
+            <div class="seg" role="group" aria-label="View">
+              <button :class="{ on: stage === '3d' }" @click="stage = '3d'">3D</button>
+              <button :class="{ on: stage === 'side' }" @click="stage = 'side'">Side view</button>
+              <button :class="{ on: stage === 'map' }" @click="stage = 'map'">Map</button>
+            </div>
+          </div>
+          <Drift3D v-if="stage === '3d'" :blocks="snap?.blocks ?? []" :selected="blockId" :surroundings="surroundings" :droplet="droplet" />
+          <div v-else-if="stage === 'side'" class="sidestage">
+            <TowerScene :reading="block?.reading ?? null" :delta-f="ev?.deltaF ?? 0" :ri="ev?.ri ?? 0" :droplet="droplet" :site="block?.sites[0] ?? null" />
+          </div>
+          <BlockMap v-else :blocks="snap?.blocks ?? []" :selected="blockId" :surroundings="surroundings" @select="blockId = $event" />
+        </section>
+
+        <section class="card">
+          <div class="tabs" role="tablist" aria-label="Evidence">
+            <button v-for="t in tabs" :key="t.id" role="tab" :aria-selected="tab === t.id" :class="{ on: tab === t.id }" @click="tab = t.id">{{ t.label }}</button>
+          </div>
+
+          <div v-if="tab === 'timeline'">
+            <Timeline :history="history.history" :forecast="history.forecast" />
+          </div>
+          <div v-else-if="tab === 'profile'" class="grid2">
+            <VerticalProfile :reading="block?.reading ?? null" />
+            <div><h2>Is the air mixing?</h2><MixingGauge :ri="ev?.ri ?? 0" /></div>
+          </div>
+          <Hodograph v-else-if="tab === 'wind'" :reading="block?.reading ?? null" />
+          <WindowRanking v-else-if="tab === 'hours'" :block-id="blockId" :forecast="history.forecast" :surroundings="surroundings" :droplet="droplet" />
+          <div v-else-if="tab === 'compare'">
+            <CompareTable :block="block" :ground="snap?.ground ?? null" />
+            <div v-if="backtest" class="backtest">
+              <span class="headline">{{ backtest.result.missedNights.length }} of {{ backtest.result.nightsCompared }} nights</span>
+              <span>in 2025 had an inversion aloft while this ground station's wind looked fine for spraying.
+                <span class="muted">{{ backtest.result.missedHours }} hours in total. Model-indicated: the upper-air temperatures come from Open-Meteo's historical forecast, not a tower.</span></span>
+            </div>
+          </div>
+          <CalcDetails v-else :reading="block?.reading ?? null" :ground="snap?.ground ?? null" />
+        </section>
+
+        <p class="muted feeds">{{ feeds }}. <NuxtLink to="/setup">Data sources and setup</NuxtLink></p>
       </div>
-      <div>
-        <div class="label">Next safe window</div>
-        <div v-if="ev?.status === 'GO'" class="figure">Open now</div>
-        <div v-else-if="block?.window" class="figure">{{ fmtTime(block.window.startMs) }}</div>
-        <div v-else class="figure">None in 36 h</div>
-        <div v-if="ev?.status !== 'GO' && block?.window" class="muted" style="margin-top:4px">until {{ fmtTime(block.window.endMs) }}. You will be alerted when it opens.</div>
-      </div>
-    </div>
-
-    <section class="sect">
-      <template v-if="!session">
-        <h2>Spray job</h2>
-        <LabelReader @use="useLabel" />
-        <select v-model="job.product" aria-label="Product"><option v-for="p in products" :key="p.name">{{ p.name }}</option></select>
-        <select v-model="job.droplet" aria-label="Droplet size">
-          <option value="fine">Fine droplets</option><option value="medium">Medium droplets</option><option value="coarse">Coarse droplets</option>
-        </select>
-        <div class="row">
-          <label>Label minimum wind, mph<input v-model.number="labelMin" type="number" placeholder="3"></label>
-          <label>Label maximum wind, mph<input v-model.number="labelMax" type="number" placeholder="10"></label>
-        </div>
-        <details class="more">
-          <summary>Details for the spray record</summary>
-          <div class="row">
-            <label>Applicator<input v-model="details.applicatorName" autocomplete="name"></label>
-            <label>License or certificate no.<input v-model="details.licenseNo"></label>
-          </div>
-          <div class="row">
-            <label>EPA Reg. No.<input v-model="details.epaRegNo"></label>
-            <label>Active ingredient<input v-model="details.activeIngredient"></label>
-          </div>
-          <div class="row">
-            <label>Rate per acre<input v-model="details.ratePerAcre" placeholder="e.g. 12 fl oz"></label>
-            <label>Target pest<input v-model="details.targetPest"></label>
-          </div>
-          <label>Re-entry interval, hours<input v-model.number="details.reiHours" type="number" min="0"></label>
-          <label class="check"><input v-model="details.sensitiveAreasChecked" type="checkbox"> I checked downwind for schools, homes, workers, water and sensitive crops</label>
-        </details>
-        <label v-if="ev?.status === 'STOP'">Reason for spraying during a Stop (goes in the record)
-          <input v-model="overrideReason">
-        </label>
-        <button class="btn" :disabled="!ev" @click="create('spraying')">Start spraying</button>
-        <button v-if="ev && ev.status !== 'GO'" class="btn secondary" @click="create('waiting')">Alert me when it is safe</button>
-        <label style="margin-top:14px">Not spraying this block now? Log it, with a reason if you like
-          <input v-model="holdReason" placeholder="e.g. inversion at dawn, waiting for the window">
-        </label>
-        <button class="btn secondary" style="margin-top:0" :disabled="!ev" @click="holdOff">Log that I am not spraying</button>
-        <div v-if="held" class="muted" role="status">{{ held }} <NuxtLink to="/log">See the spray log</NuxtLink></div>
-      </template>
-
-      <template v-else>
-        <h2>{{ session.phase === 'waiting' ? 'Waiting for a safe window' : session.phase === 'spraying' ? 'Spraying' : 'Post-spray watch' }}</h2>
-        <div>{{ session.job.product }}, {{ session.job.droplet }} droplets, since {{ fmtTime(session.startedMs) }}</div>
-        <div v-if="session.overrideReason" class="muted">Override reason: {{ session.overrideReason }}</div>
-        <template v-if="session.phase === 'waiting'">
-          <label v-if="ev?.status === 'STOP'" style="margin-top:10px">Reason for spraying during a Stop (goes in the record)
-            <input v-model="overrideReason">
-          </label>
-          <button class="btn" @click="start">Start spraying</button>
-          <button class="btn secondary" @click="finish">Cancel</button>
-        </template>
-        <button v-else-if="session.phase === 'spraying'" class="btn" @click="finish">Finish spraying</button>
-        <div v-else class="muted" style="margin-top:8px">Still watching. You will be alerted if conditions turn.</div>
-        <p><NuxtLink :to="`/record/${session.id}`">View the job record</NuxtLink></p>
-      </template>
-      <div v-if="error" class="error" role="alert">{{ error }}</div>
-    </section>
-
-    <section class="sect">
-      <h2>Ask Stillair</h2>
-      <AskBox />
-    </section>
-
-    <div class="pad">
-      <button class="btn secondary" @click="enablePush">Turn on alerts for this phone</button>
-      <div class="muted" role="status">{{ pushState }}</div>
     </div>
   </main>
 </template>

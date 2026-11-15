@@ -38,10 +38,46 @@ async function importCsv() {
   catch { error.value = 'Import failed. Check that the mapping is valid JSON and the column names match.' }
 }
 const example = computed(() => `curl -X POST ${api}/api/readings -H 'content-type: application/json' -d '{"source":"my-tower","blockId":"block-3","time":"${new Date().toISOString()}","levels":[{"heightFt":5,"tempF":54.1,"windMph":3.5,"windDirDeg":280},{"heightFt":30,"tempF":61,"windMph":5,"windDirDeg":265}]}'`)
+
+import { SCENARIOS } from '@drift/engine'
+
+const mode = ref<'live' | 'scenario' | 'replay'>('scenario')
+const scenarioId = ref(SCENARIOS[0].id)
+const replayDate = ref('2025-01-10')
+const stepMin = ref(5)
+const message = ref('')
+
+async function apply(reset: boolean) {
+  const r = await $fetch<any>(`${api}/api/demo`, { method: 'POST', body: { mode: mode.value, scenarioId: scenarioId.value, replayDate: replayDate.value, stepMin: stepMin.value, reset } })
+  message.value = r.error ?? `Now in ${r.demo.mode} mode.`
+}
+const speed = () => $fetch(`${api}/api/demo`, { method: 'POST', body: { stepMin: stepMin.value } })
 </script>
 
 <template>
   <main class="wide">
+    <h1 style="margin-bottom:14px">Setup</h1>
+    <section class="card" style="max-width:520px">
+      <h2>Demo control</h2>
+      <select v-model="mode" aria-label="Mode">
+        <option value="live">Live: today's real weather</option>
+        <option value="scenario">Scenario: scripted night</option>
+        <option value="replay">Replay: a real past night</option>
+      </select>
+      <select v-if="mode === 'scenario'" v-model="scenarioId" aria-label="Scenario">
+        <option v-for="s in SCENARIOS" :key="s.id" :value="s.id">{{ s.name }}</option>
+      </select>
+      <input v-if="mode === 'replay'" v-model="replayDate" type="date" aria-label="Replay date">
+      <div class="label">Simulated minutes per 2-second tick</div>
+      <select v-model.number="stepMin" aria-label="Speed" @change="speed">
+        <option :value="1">1</option><option :value="5">5</option><option :value="15">15</option><option :value="30">30</option>
+      </select>
+      <button class="btn" @click="apply(false)">Apply</button>
+      <button class="btn secondary" @click="apply(true)">Apply and clear the log</button>
+      <div class="muted">{{ message }}</div>
+      <div class="muted">Simulated time: {{ snap ? fmtStamp(snap.nowMs) : '...' }}</div>
+    </section>
+
     <section class="card">
       <h2>Where the data comes from</h2>
       <div class="tablewrap">
@@ -103,5 +139,5 @@ const example = computed(() => `curl -X POST ${api}/api/readings -H 'content-typ
         </div>
       </section>
     </div>
-  </main>
+    </main>
 </template>
