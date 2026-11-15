@@ -29,7 +29,7 @@ const label = (o: string) => (o === 'not-sprayed' ? 'Did not spray' : o === 'wai
           <a class="btn secondary" style="width:auto;margin:0;text-decoration:none;display:inline-flex;align-items:center" :href="`${api}/api/spraylog?format=csv`">Download CSV</a>
         </div>
       </div>
-      <p class="muted">Every job and every decision not to spray, with the conditions the tower measured when it started and stopped. Jobs started from the <NuxtLink to="/">Now</NuxtLink> screen are logged as they run; use "Add a record" for anything that was not. The download adds the application details, coordinates and acreage for each row.</p>
+      <p class="muted">Every job and every decision not to spray, with the conditions the tower measured when it started and stopped. Jobs started from the <NuxtLink to="/now">Now</NuxtLink> screen are logged as they run; use "Add a record" for anything that was not. The download adds the application details, coordinates and acreage for each row.</p>
       <RecordForm v-if="adding" @saved="adding = false; load()" @cancel="adding = false" />
       <div v-if="error" class="error" role="alert">{{ error }}</div>
       <div v-else-if="!rows.length && !adding" class="muted">Nothing logged yet. Add a record here, or start a job from the Now screen.</div>

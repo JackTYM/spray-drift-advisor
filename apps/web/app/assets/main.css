@@ -265,3 +265,29 @@ label.check input { width: 22px; height: 22px; min-height: 0; margin: 0; flex: n
 .sourcepick { width: auto; min-height: 40px; margin: 0; padding: 6px 38px 6px 12px; font-size: 15px; }
 .samples { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; margin: -4px 0 12px; font-size: 14px; }
 .samples .linkbtn { font-size: 14px; }
+
+/* ---------- planner ---------- */
+.decide .banner.plan .big { font-size: 64px; line-height: .95; margin: 8px 0 10px -2px; }
+.banner .conf { display: flex; align-items: baseline; gap: 10px; margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(0, 0, 0, .25); font-size: 15px; font-weight: 600; }
+.banner .conf strong { font-family: var(--display); font-size: 34px; line-height: 1; }
+.joblen { align-items: center; border-bottom: 0; }
+.joblen label { font-size: 15px; color: var(--muted); }
+.joblen input { width: 96px; min-height: 42px; margin: 0; padding: 6px 10px; text-align: right; }
+.winrow { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; padding: 6px 0; }
+.winrow .linkbtn { margin: 0; text-align: left; }
+.hourline { margin: 0 0 10px; color: var(--muted); }
+.hourline strong { color: var(--ink); }
+.decide h2 .chip { margin-left: 8px; font-size: 14px; }
+.strip { display: flex; gap: 2px; align-items: stretch; margin-top: 6px; }
+.strip button { flex: 1; min-width: 0; display: grid; grid-template-rows: 18px 96px 18px; padding: 0; border: 0; background: transparent; color: var(--muted); font: 500 12px var(--text); cursor: pointer; }
+.strip .day { text-align: left; white-space: nowrap; color: var(--ink); font-weight: 600; }
+.strip .col { display: flex; align-items: flex-end; background: var(--bg); border: 2px solid transparent; border-radius: 2px; }
+.strip .bar { width: 100%; border-radius: 1px; background: var(--stop); }
+.strip .GO .bar { background: var(--go); } .strip .CAUTION .bar { background: var(--caution); }
+.strip .win .col { border-color: var(--go); }
+.strip .on .col { border-color: var(--ink); background: var(--panel-2); }
+.strip button:hover .col { border-color: var(--muted); }
+.strip .hr { white-space: nowrap; overflow: visible; text-align: left; padding-top: 3px; }
+.striplegend { margin: 12px 0 0; }
+.blockmap.adding { cursor: crosshair; outline: 2px solid var(--warm); }
+.blocktabs { flex-wrap: wrap; }

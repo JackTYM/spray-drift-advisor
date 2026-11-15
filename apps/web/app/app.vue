@@ -2,7 +2,8 @@
   <div>
     <nav class="nav">
       <NuxtLink to="/" class="brand">Stillair</NuxtLink>
-      <NuxtLink to="/">Now</NuxtLink>
+      <NuxtLink to="/">Plan</NuxtLink>
+      <NuxtLink to="/now">Now</NuxtLink>
       <NuxtLink to="/records">Records</NuxtLink>
     </nav>
     <NuxtPage />

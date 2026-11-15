@@ -1,132 +1,150 @@
 <script setup lang="ts">
-import { BLOCKS, SCENARIOS, areaAcres, evaluate, localOutline, scenarioById, sprayEconomics, whatIfReading, type BlockSnapshot } from '@drift/engine'
+import { BLOCKS, confidenceWord, evaluate, towerModelFor, type BlockSnapshot, type Status } from '@drift/engine'
 
-const { snap, api } = useRanch()
-const route = useRoute()
-const blockId = ref(String(route.query.block ?? 'block-3'))
-const liveBlock = computed(() => snap.value?.blocks.find(b => b.id === blockId.value) ?? null)
-const whatIf = useWhatIf()
-/** In what-if mode the chosen conditions stand in for the live reading, run through the same rules. */
-const block = computed<BlockSnapshot | null>(() => {
-  const live = liveBlock.value
-  if (!live || !whatIf.on.value) return live
-  const reading = whatIfReading(live.id, whatIf.w.value, snap.value?.nowMs ?? Date.now())
-  const evaluation = evaluate({ history: [reading], nowMs: Date.parse(reading.time), sites: live.sites })
-  return { ...live, reading, evaluation, window: null }
+const { fields, plans, errors, minutesFor, windowsFor, addField, removeField, setMinutes } = usePlans()
+const fieldId = ref('block-3')
+const field = computed(() => fields.value.find(f => f.id === fieldId.value) ?? fields.value[0]!)
+const plan = computed(() => plans.value[field.value.id] ?? null)
+const windows = computed(() => windowsFor(field.value.id))
+const minutes = computed(() => minutesFor(field.value.id))
+const now = ref(Date.now())
+let clock: ReturnType<typeof setInterval>
+onMounted(() => { clock = setInterval(() => { now.value = Date.now() }, 30_000) })
+onBeforeUnmount(() => clearInterval(clock))
+
+/** The next window for a field, in a few characters and in full. */
+function outlook(id: string) {
+  const p = plans.value[id]
+  if (!p) return { state: errors.value[id] ? 'NO DATA' : '…', status: undefined as Status | undefined, startMs: Infinity }
+  const w = windowsFor(id)[0]
+  if (!w) return { state: 'NONE', status: 'STOP' as Status, startMs: Infinity }
+  const open = w.startMs <= now.value
+  return { state: open ? 'OPEN' : `${fmtDay(w.startMs)} ${fmtHour(w.startMs)}`.toUpperCase(), status: (open ? 'GO' : 'CAUTION') as Status, startMs: open ? 0 : w.startMs }
+}
+/** Fields in the order a crew could get to them: soonest window first. */
+const ordered = computed(() => fields.value.map(f => ({ f, o: outlook(f.id) })).sort((a, b) => a.o.startMs - b.o.startMs))
+const next = computed(() => windows.value[0] ?? null)
+const openNow = computed(() => !!next.value && next.value.startMs <= now.value)
+const pct = (c: number) => `${Math.round(c * 100)}%`
+
+/** The hour being previewed: the one clicked, or the start of the next window, or now. */
+const picked = ref<number | null>(null)
+watch(fieldId, () => { picked.value = null })
+const hour = computed(() => {
+  const hs = plan.value?.hours ?? []
+  return hs.find(h => h.timeMs === picked.value) ?? hs.find(h => h.timeMs === next.value?.startMs) ?? hs[0] ?? null
 })
-/** Every block as the views should draw it: the selected one may be showing what-if conditions. */
-const blocks = computed(() => (snap.value?.blocks ?? []).map(b => (b.id === blockId.value && block.value ? block.value : b)))
-const ev = computed(() => block.value?.evaluation ?? null)
-const session = computed(() => snap.value?.sessions.find(s => s.blockId === blockId.value && s.phase !== 'closed') ?? null)
-const surroundings = useSurroundings(blockId)
-const bufferM = useBufferM()
-const facts = computed(() => downwindFacts(block.value, surroundings.value, bufferM.value))
-const droplet = computed(() => (whatIf.on.value ? whatIf.quality.value : session.value?.job.droplet ?? whatIf.quality.value))
+const hourEval = computed(() => (hour.value ? evaluate({ history: [hour.value.reading], nowMs: hour.value.timeMs, sites: plan.value?.sites ?? [] }) : null))
+const hourStatuses = computed(() => Object.fromEntries(fields.value.map(f => [f.id, plans.value[f.id]?.hours.find(h => h.timeMs === hour.value?.timeMs)?.status])))
 
-/** The one large view on the right, and the one piece of evidence under it. */
-const stage = ref<'3d' | 'side' | 'map'>('3d')
-const tab = ref<'timeline' | 'profile' | 'wind' | 'hours' | 'compare' | 'numbers'>('timeline')
-const tabs = [
-  { id: 'timeline', label: 'Timeline' }, { id: 'profile', label: 'Air profile' }, { id: 'wind', label: 'Wind' },
-  { id: 'hours', label: 'Best hours' }, { id: 'compare', label: 'Ground station vs two heights' }, { id: 'numbers', label: 'The numbers' },
-] as const
-function open(what: 'profile' | 'wind' | 'map') {
-  if (what === 'map') stage.value = 'map'
-  else tab.value = what
+const stage = ref<'map' | '3d' | 'side'>('map')
+const isBlock = computed(() => BLOCKS.some(b => b.id === field.value.id))
+watch(isBlock, yes => { if (!yes && stage.value === '3d') stage.value = 'map' })
+/** The ranch's blocks as the 3D scene expects them, each showing its estimate for the previewed hour. */
+const sceneBlocks = computed<BlockSnapshot[]>(() => BLOCKS.map(b => {
+  const p = plans.value[b.id]
+  const h = p?.hours.find(x => x.timeMs === hour.value?.timeMs) ?? null
+  return { id: b.id, name: b.name, crop: b.crop, note: b.note, reading: h?.reading ?? null, window: null, sites: b.sites, evaluation: h ? evaluate({ history: [h.reading], nowMs: h.timeMs, sites: b.sites }) : null }
+}))
+const surroundings = useSurroundings(computed(() => (isBlock.value ? field.value.id : 'block-3')))
+
+const tab = ref<'estimate' | 'micro' | 'confidence'>('estimate')
+const tabs = [{ id: 'estimate', label: 'Where the estimate comes from' }, { id: 'micro', label: 'This field\'s microclimate' }, { id: 'confidence', label: 'How sure, and why' }] as const
+const tower = computed(() => (plan.value ? towerModelFor(plan.value.terrain) : null))
+const used = computed(() => plan.value?.estimate.stations.filter(s => s.weight >= 0.01) ?? [])
+const signed = (n: number, unit = '') => `${n > 0 ? '+' : ''}${n}${unit}`
+const ft = (m: number) => Math.round(Math.abs(m) * 3.281)
+
+const adding = ref(false)
+function add(lat: number, lon: number) {
+  adding.value = false
+  fieldId.value = addField(lat, lon).id
+}
+function remove() {
+  const id = field.value.id
+  fieldId.value = 'block-3'
+  removeField(id)
 }
 
-const history = ref<{ history: any[]; forecast: any[] }>({ history: [], forecast: [] })
-const backtest = ref<any>(null)
-async function refresh() {
-  try { history.value = await $fetch<any>(`${api}/api/blocks/${blockId.value}/history`) } catch { /* keep the last data */ }
-}
-let timer: ReturnType<typeof setInterval>
-onMounted(async () => {
-  refresh()
-  timer = setInterval(refresh, 5000)
-  backtest.value = await $fetch(`${api}/api/backtest`).catch(() => null)
-})
-onBeforeUnmount(() => clearInterval(timer))
-watch(blockId, refresh)
-
-const field = computed(() => localOutline(BLOCKS.find(b => b.id === blockId.value) ?? BLOCKS[0]!))
-const acres = computed(() => areaAcres(field.value))
-/** What spraying in these conditions would lose, from the drift model. */
-const econ = computed(() => (block.value?.reading ? sprayEconomics(block.value.reading, droplet.value, acres.value, whatIf.costPerAcre.value || 0, { field: field.value }) : null))
-/** What is on screen, in words, so the assistant answers about the same numbers the user sees. */
+/** What is on screen, in words, so the assistant answers from the same plan. */
 const askContext = computed(() => {
-  const b = block.value, e = econ.value, v = b?.evaluation
-  if (!b || !v || !e) return ''
-  const lines = [
-    whatIf.on.value ? `The user is exploring a WHAT-IF scenario for ${b.name}, not live conditions: ${v.deltaF > 0 ? '+' : ''}${v.deltaF}°F between 5 ft and 30 ft, wind ${whatIf.w.value.lowWindMph} mph at 5 ft and ${whatIf.w.value.highWindMph} mph at 30 ft from the ${compass(whatIf.w.value.windFromDeg)}. Under those conditions the rules give ${v.status}. Reasons: ${v.triggers.map(t => t.text).join(' ') || 'none'}` : `The user is looking at ${b.name}.`,
-    `Drift model estimate for ${b.name} (${acres.value} acres, ${droplet.value} spray quality, $${whatIf.costPerAcre.value} per acre): ${e.offTargetPct}% of the spray would leave the block (${e.offLowPct}% near the ground, ${e.aloftPct}% aloft), about $${e.wastedUsd} of a $${e.costUsd} application, and it would take ${e.extraPct}% more product to put the full dose on the trees.`,
-    facts.value && !facts.value.calm ? `Spray would be carried toward the ${facts.value.dir}; ${facts.value.addresses.length} addresses lie within ${bufferM.value} m that way.` : '',
-  ]
-  return lines.filter(Boolean).join('\n')
+  const p = plan.value
+  if (!p) return ''
+  const w = next.value
+  return [
+    `The user is planning ahead for ${field.value.name} (${field.value.lat}, ${field.value.lon}); the job takes ${minutes.value} minutes and will not be stopped once started.`,
+    w ? `Next spray window: ${fmtWhen(w.startMs, now.value)} to ${fmtWhen(w.endMs, now.value)}; the job must start by ${fmtWhen(w.latestStartMs, now.value)}. Confidence ${pct(w.confidence)} (${confidenceWord(w.confidence)}).` : `No window of ${minutes.value} minutes in the next 48 hours meets every limit with at least 50% confidence.`,
+    `All fields, soonest first: ${ordered.value.map(x => `${x.f.name} ${x.o.state}`).join('; ')}.`,
+    `Microclimate: ${p.terrain.summary}`,
+    `Field estimate now: ${p.estimate.tempF}°F, wind ${p.estimate.windMph} mph (weather model alone: ${p.estimate.model.tempF}°F, ${p.estimate.model.windMph} mph), corrected with ${used.value.length} stations; nearest ${used.value[0]?.name ?? 'none'} at ${used.value[0]?.distanceKm ?? '?'} km. Station coverage ${pct(p.estimate.support)}.`,
+    `Accuracy test now across ${p.skill.n} stations (each hidden in turn): estimate off by ${p.skill.fusedTempF}°F and ${p.skill.fusedWindMph} mph on average; model alone ${p.skill.modelTempF}°F and ${p.skill.modelWindMph} mph. Confidence is derived from this error and grows less sure with hours ahead; it is not a validated probability.`,
+    hour.value ? `Hour being previewed: ${fmtWhen(hour.value.timeMs, now.value)}: ${hour.value.status}, confidence ${pct(hour.value.confidence)}, ${signed(hour.value.deltaF, '°F')} between 5 ft and 30 ft, wind ${hour.value.lowWindMph} mph at 5 ft and ${hour.value.highWindMph} mph at 30 ft, gusts ${hour.value.gustMph} mph. ${hour.value.reasons.join(' ')}` : '',
+  ].filter(Boolean).join('\n')
 })
-const marks = computed(() => (snap.value?.demo.mode === 'scenario' ? scenarioById(snap.value.demo.scenarioId).marks : []))
-const jump = (min: number) => $fetch(`${api}/api/demo`, { method: 'POST', body: { seekMin: min } }).then(refresh)
-const blockName = computed(() => BLOCKS.find(b => b.id === blockId.value)?.name ?? '')
-const feeds = computed(() => (snap.value?.sources ?? []).filter(s => s.role === 'Tower' || s.role === 'Ground station').map(s => `${s.role}: ${s.kind}, ${s.adapter}`).join('. '))
-/** Which data the page is showing: live, or one of the scripted nights that play from the start. */
-const source = computed(() => (snap.value?.demo.mode === 'scenario' ? snap.value.demo.scenarioId : snap.value?.demo.mode ?? 'live'))
-async function setSource(value: string) {
-  if (value === 'replay') return
-  whatIf.on.value = false
-  const body = value === 'live' ? { mode: 'live', reset: true } : { mode: 'scenario', scenarioId: value, stepMin: 2, reset: true }
-  await $fetch(`${api}/api/demo`, { method: 'POST', body }).catch(() => null)
-  refresh()
-}
 </script>
 
 <template>
   <main class="now">
     <div class="topline">
-      <div class="blocktabs" role="tablist" aria-label="Block">
-        <button v-for="b in snap?.blocks ?? []" :key="b.id" role="tab" :aria-selected="b.id === blockId" :class="[b.evaluation?.status ?? 'wait', { on: b.id === blockId }]" @click="blockId = b.id">
-          <span class="name">{{ b.name }}</span><span class="state">{{ b.evaluation?.status ?? 'WAIT' }}</span>
+      <div class="blocktabs" role="tablist" aria-label="Fields, soonest window first">
+        <button v-for="x in ordered" :key="x.f.id" role="tab" :aria-selected="x.f.id === fieldId" :class="[x.o.status ?? 'wait', { on: x.f.id === fieldId }]" @click="fieldId = x.f.id">
+          <span class="name">{{ x.f.name }}</span><span class="state">{{ x.o.state }}</span>
         </button>
       </div>
-      <button class="whatifbtn" :class="{ on: whatIf.on.value }" :aria-pressed="whatIf.on.value" @click="whatIf.on.value = !whatIf.on.value">{{ whatIf.on.value ? 'Back to live conditions' : 'What if…' }}</button>
-      <div v-if="marks.length && !whatIf.on.value" class="jumps" style="margin:0">
-        <span class="muted">Jump to</span>
-        <button v-for="m in marks" :key="m.label" @click="jump(m.min)">{{ m.label }}</button>
-      </div>
-      <div class="clock">
-        <select :value="source" aria-label="Data shown" class="sourcepick" @change="setSource(($event.target as HTMLSelectElement).value)">
-          <option value="live">Live conditions</option>
-          <option v-for="s in SCENARIOS.filter(x => x.marks.length)" :key="s.id" :value="s.id">Example night: {{ s.name.toLowerCase() }}</option>
-          <option v-if="snap?.demo.mode === 'replay'" value="replay">Replay of {{ snap.demo.replayDate }}</option>
-        </select>
-        <span class="muted">{{ snap ? fmtStamp(snap.nowMs) : '' }}</span>
-      </div>
+      <button class="whatifbtn" :class="{ on: adding }" :aria-pressed="adding" @click="adding = !adding; stage = 'map'">{{ adding ? 'Click the map to place the field' : 'Add a field' }}</button>
+      <div class="clock"><span class="muted">Fields are ordered by soonest window. {{ fmtStamp(now) }}</span></div>
     </div>
-
-    <WhatIfBar v-if="whatIf.on.value" />
 
     <div class="split">
       <aside class="decide">
-        <StatusBanner :evaluation="ev" :where="block ? `${whatIf.on.value ? 'What-if: ' : ''}${block.name}, ${block.note.toLowerCase()}` : undefined" />
-        <div v-if="!whatIf.on.value" class="next">
-          <span class="muted">Next safe window</span>
-          <strong v-if="ev?.status === 'GO'">Open now</strong>
-          <strong v-else-if="block?.window">{{ fmtTime(block.window.startMs) }} to {{ fmtTime(block.window.endMs) }}</strong>
-          <strong v-else>None in the next 36 hours</strong>
+        <div class="banner plan" :class="!plan ? 'wait' : openNow ? 'GO' : next ? 'CAUTION' : 'STOP'" role="status" aria-live="polite">
+          <div class="where">{{ field.name }} · next window for a {{ minutes }} minute job</div>
+          <template v-if="!plan">
+            <div class="big">{{ errors[field.id] ? 'No data' : 'Working' }}</div>
+            <div class="why">{{ errors[field.id] ?? 'Reading the stations, the forecast and the terrain around this field.' }}</div>
+          </template>
+          <template v-else-if="next">
+            <div class="big">{{ openNow ? 'Open now' : fmtWhen(next.startMs, now) }}</div>
+            <div class="why">
+              {{ openNow ? 'Open' : 'Opens' }} until {{ fmtWhen(next.endMs, now) }}. Start by <strong>{{ fmtWhen(next.latestStartMs, now) }}</strong> to finish inside it.
+            </div>
+            <div class="conf"><span>Confidence</span><strong>{{ pct(next.confidence) }}</strong><span>{{ confidenceWord(next.confidence) }}</span></div>
+          </template>
+          <template v-else>
+            <div class="big">No window</div>
+            <div class="why">No stretch of {{ minutes }} minutes in the next 48 hours meets every limit with at least 50% confidence.</div>
+          </template>
         </div>
 
-        <section>
-          <h2>Why</h2>
-          <WhyList :block="block" :facts="facts" :buffer-m="bufferM" @open="open" />
+        <div class="next joblen">
+          <label for="jobmin">Job length on this field, minutes</label>
+          <input id="jobmin" type="number" min="15" max="600" step="15" :value="minutes" @change="setMinutes(field.id, Number(($event.target as HTMLInputElement).value))">
+        </div>
+
+        <section v-if="windows.length > 1">
+          <h2>Later windows</h2>
+          <div v-for="w in windows.slice(1, 4)" :key="w.startMs" class="winrow">
+            <button class="linkbtn" @click="picked = w.startMs">{{ fmtWhen(w.startMs, now) }} to {{ fmtWhen(w.endMs, now) }}</button>
+            <span class="muted">start by {{ fmtTime(w.latestStartMs) }} · {{ pct(w.confidence) }}</span>
+          </div>
         </section>
 
-        <section v-if="!whatIf.on.value">
-          <h2>Log a spray job</h2>
-          <JobPanel :block-id="blockId" />
+        <section v-if="hour">
+          <h2>{{ fmtWhen(hour.timeMs, now) }} at this field <span class="chip" :class="hour.status">{{ hour.status }}</span></h2>
+          <p class="hourline">
+            <strong>{{ signed(hour.deltaF, '°F') }}</strong> from 5 ft to 30 ft ·
+            wind <strong>{{ hour.lowWindMph }}</strong> mph at 5 ft, <strong>{{ hour.highWindMph }}</strong> at 30 ft, gusts <strong>{{ hour.gustMph }}</strong> ·
+            confidence <strong>{{ pct(hour.confidence) }}</strong>
+          </p>
+          <p v-for="r in hour.reasons" :key="r" class="trigger plain">{{ r }}</p>
+          <p v-if="!hour.reasons.length" class="trigger plain">No inversion expected, and wind is forecast inside the limits at both heights.</p>
         </section>
 
-        <section>
-          <h2>{{ whatIf.on.value ? 'If you sprayed in these conditions' : 'If you sprayed now' }}</h2>
-          <SprayCost :econ="econ" :acres="acres" :status="ev?.status ?? null" />
+        <section v-if="plan">
+          <h2>Why this field is different</h2>
+          <p style="margin:0">{{ plan.terrain.summary }}</p>
+          <NuxtLink v-if="isBlock" :to="`/now?block=${field.id}`" class="linkbtn" style="display:inline-block">See live conditions and log a job on {{ field.name }}</NuxtLink>
+          <button v-else class="linkbtn" @click="remove">Remove {{ field.name }}</button>
         </section>
 
         <section>
@@ -136,49 +154,84 @@ async function setSource(value: string) {
       </aside>
 
       <div class="evidence">
-        <section class="card stagecard">
+        <section class="card">
           <div class="cardhead">
-            <h2>{{ stage === 'map' ? `What lies around ${blockName}` : `Where spray from ${blockName} would go` }}</h2>
-            <div class="seg" role="group" aria-label="View">
-              <button :class="{ on: stage === '3d' }" @click="stage = '3d'">3D</button>
-              <button :class="{ on: stage === 'side' }" @click="stage = 'side'">Side view</button>
-              <button :class="{ on: stage === 'map' }" @click="stage = 'map'">Map</button>
-            </div>
+            <h2>The next 48 hours at {{ field.name }}</h2>
+            <span v-if="plan" class="muted">Estimated {{ fmtTime(plan.generatedMs) }} from {{ plan.stations.length }} stations and the forecast model</span>
           </div>
-          <Drift3D v-if="stage === '3d'" :blocks="blocks" :selected="blockId" :surroundings="surroundings" :droplet="droplet" />
-          <div v-else-if="stage === 'side'" class="sidestage">
-            <TowerScene :reading="block?.reading ?? null" :delta-f="ev?.deltaF ?? 0" :ri="ev?.ri ?? 0" :droplet="droplet" :site="block?.sites[0] ?? null" />
-          </div>
-          <BlockMap v-else :blocks="blocks" :selected="blockId" :surroundings="surroundings" @select="blockId = $event" />
+          <PlanStrip v-if="plan" :hours="plan.hours" :windows="windows" :selected="hour?.timeMs ?? 0" @select="picked = $event" />
+          <p v-else class="muted">{{ errors[field.id] ?? 'Loading the plan…' }}</p>
         </section>
 
-        <section class="card">
+        <section class="card stagecard">
+          <div class="cardhead">
+            <h2 v-if="stage === 'map'">{{ adding ? 'Click where the new field is' : `Stations informing ${field.name}` }}</h2>
+            <h2 v-else>Where spray would go at {{ hour ? fmtWhen(hour.timeMs, now) : '' }}</h2>
+            <div class="seg" role="group" aria-label="View">
+              <button :class="{ on: stage === 'map' }" @click="stage = 'map'">Map</button>
+              <button v-if="isBlock" :class="{ on: stage === '3d' }" @click="stage = '3d'">3D at this hour</button>
+              <button :class="{ on: stage === 'side' }" @click="stage = 'side'">Side view</button>
+            </div>
+          </div>
+          <PlanMap v-if="stage === 'map'" :fields="fields" :plan="plan" :selected="field.id" :statuses="hourStatuses" :adding="adding" @select="fieldId = $event" @add="add" />
+          <Drift3D v-else-if="stage === '3d'" :blocks="sceneBlocks" :selected="field.id" :surroundings="surroundings" droplet="medium" />
+          <div v-else class="sidestage">
+            <TowerScene :reading="hour?.reading ?? null" :delta-f="hourEval?.deltaF ?? 0" :ri="hourEval?.ri ?? 0" droplet="medium" :site="plan?.sites[0] ?? null" />
+          </div>
+        </section>
+
+        <section v-if="plan" class="card">
           <div class="tabs" role="tablist" aria-label="Evidence">
             <button v-for="t in tabs" :key="t.id" role="tab" :aria-selected="tab === t.id" :class="{ on: tab === t.id }" @click="tab = t.id">{{ t.label }}</button>
           </div>
 
-          <div v-if="tab === 'timeline'">
-            <p v-if="whatIf.on.value" class="muted">The timeline shows what was actually measured and forecast, not the what-if conditions.</p>
-            <Timeline :history="history.history" :forecast="history.forecast" />
-          </div>
-          <div v-else-if="tab === 'profile'" class="grid2">
-            <VerticalProfile :reading="block?.reading ?? null" />
-            <div><h2>Is the air mixing?</h2><MixingGauge :ri="ev?.ri ?? 0" /></div>
-          </div>
-          <Hodograph v-else-if="tab === 'wind'" :reading="block?.reading ?? null" />
-          <WindowRanking v-else-if="tab === 'hours'" :block-id="blockId" :forecast="history.forecast" :surroundings="surroundings" :droplet="droplet" :now="liveBlock?.reading ?? null" :cost-per-acre="whatIf.costPerAcre.value || 0" />
-          <div v-else-if="tab === 'compare'">
-            <CompareTable :block="block" :ground="snap?.ground ?? null" />
-            <div v-if="backtest" class="backtest">
-              <span class="headline">{{ backtest.result.missedNights.length }} of {{ backtest.result.nightsCompared }} nights</span>
-              <span>in 2025 had an inversion aloft while this ground station's wind looked fine for spraying.
-                <span class="muted">{{ backtest.result.missedHours }} hours in total. Model-indicated: the upper-air temperatures come from Open-Meteo's historical forecast, not a tower.</span></span>
+          <div v-if="tab === 'estimate'">
+            <p class="mapfact" style="margin-top:0">
+              There is no weather station on this field. The forecast model alone says <strong>{{ plan.estimate.model.tempF }}°F</strong> and <strong>{{ plan.estimate.model.windMph }} mph</strong> here right now.
+              <template v-if="used.length">Comparing the model with what {{ used.length }} nearby {{ used.length === 1 ? 'station measures' : 'stations measure' }} moves that to <strong>{{ plan.estimate.tempF }}°F</strong> and <strong>{{ plan.estimate.windMph }} mph</strong>.</template>
+              <template v-else>No station is close enough to correct it, so the plan rests on the model and confidence is lowered.</template>
+            </p>
+            <div class="tablewrap">
+              <table>
+                <thead><tr><th>Station</th><th>Network</th><th>Distance</th><th>Elevation vs field</th><th>Measured</th><th>Model was off by</th><th>Weight</th></tr></thead>
+                <tbody>
+                  <tr v-for="s in plan.estimate.stations" :key="s.id">
+                    <td>{{ s.name }}</td><td>{{ s.network }}</td><td class="num">{{ s.distanceKm }} km</td><td class="num">{{ signed(ft(s.dElevM) * Math.sign(s.dElevM), ' ft') }}</td>
+                    <td class="num">{{ plan.stations.find(x => x.id === s.id)?.tempF }}°F, {{ plan.stations.find(x => x.id === s.id)?.windMph }} mph</td>
+                    <td class="num">{{ signed(s.dTempF, '°F') }}, {{ signed(s.dWindMph, ' mph') }}</td><td class="num">{{ pct(s.weight) }}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
+            <p class="muted">Stations count for more when they are nearer and at a similar elevation: 330 ft of height difference counts like 12 km of distance. The correction fades over the hours ahead (half after 6 hours) because it describes now. AZMet wind is measured at 10 ft and adjusted to the model's 33 ft.</p>
           </div>
-          <CalcDetails v-else :reading="block?.reading ?? null" :ground="snap?.ground ?? null" />
-        </section>
 
-        <p class="muted feeds">{{ feeds }}.</p>
+          <div v-else-if="tab === 'micro'">
+            <p class="mapfact" style="margin-top:0">{{ plan.terrain.summary }}</p>
+            <div class="facts">
+              <div><span>Elevation</span>{{ Math.round(plan.terrain.elevM * 3.281).toLocaleString() }} ft</div>
+              <div><span>Against land within 500 m</span>{{ ft(plan.terrain.relief500M) }} ft {{ plan.terrain.relief500M < 0 ? 'lower' : 'higher' }}</div>
+              <div><span>Against land within 2 km</span>{{ ft(plan.terrain.relief2kmM) }} ft {{ plan.terrain.relief2kmM < 0 ? 'lower' : 'higher' }}</div>
+              <div><span>Against land within 6 km</span>{{ ft(plan.terrain.relief6kmM) }} ft {{ plan.terrain.relief6kmM < 0 ? 'lower' : 'higher' }}</div>
+              <div><span>Slope</span>{{ plan.terrain.slopePct }}%, falling toward the {{ plan.terrain.drainsToward }}</div>
+              <div><span>Cold-air pooling</span>{{ pct(plan.terrain.coldPool) }}</div>
+            </div>
+            <p v-if="tower" class="muted">
+              What that changes in the forecast: an inversion is expected here once the air 260 ft up is {{ tower.offsetF }}°F warmer than the surface air (on open flat ground: 6°F), and it is taken to be {{ tower.factor }} times as strong as the regional signal (flat ground: 0.5).
+              Elevations come from a 90 m terrain model at 25 points around the field. These terrain factors are our reasoning from how cold air drains, not yet fitted to tower measurements.
+            </p>
+          </div>
+
+          <div v-else>
+            <div class="backtest" style="margin-top:0;padding-top:0;border-top:0">
+              <span class="headline">±{{ plan.sigma.tempF }}°F</span>
+              <span>is the typical error of this method right now, with ±{{ plan.sigma.windMph }} mph on wind.
+                <span class="muted">Measured by hiding each of {{ plan.skill.n }} stations in turn and estimating it from the others: off by {{ plan.skill.fusedTempF }}°F and {{ plan.skill.fusedWindMph }} mph on average. The forecast model alone was off by {{ plan.skill.modelTempF }}°F and {{ plan.skill.modelWindMph }} mph.</span></span>
+            </div>
+            <p>Confidence for an hour is the chance that wind stays inside both limits and no inversion forms, given that error. It falls as the forecast looks further ahead, where stations cover the field poorly (coverage here: {{ pct(plan.estimate.support) }}), and when a value sits close to a limit. A window's confidence is that of its weakest hour.</p>
+            <p class="muted">This is a confidence figure built from today's measured error. It has not been checked against a season of outcomes, so read it as a guide to which windows are firm and which are marginal, not as a guaranteed probability.</p>
+          </div>
+        </section>
       </div>
     </div>
   </main>

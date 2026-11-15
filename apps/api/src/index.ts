@@ -7,6 +7,7 @@ import { alertPhones, sendLinq } from './alerter'
 import { evaluationNear, upsertSession, sessionStats, alertRows, db, insertRecorded, latestBacktest, logRows, saveSubscription, sessionById, sessionRows } from './db'
 import type { Env } from './env'
 import { blockSurroundings } from './feeds'
+import { buildPlan } from './plan'
 
 export { RanchDO } from './ranch-do'
 
@@ -162,6 +163,15 @@ app.get('/api/spraylog', async c => {
   ]
   const csv = [cols.map(c2 => csvCell(c2[0])).join(','), ...rows.map(r => cols.map(c2 => csvCell(c2[1](r))).join(','))].join('\n')
   return new Response(csv, { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="stillair-spray-log.csv"' } })
+})
+
+/** The window plan for any field: /api/plan?lat=..&lon=..&jobMin=45&name=.. */
+app.get('/api/plan', async c => {
+  const lat = Number(c.req.query('lat')), lon = Number(c.req.query('lon'))
+  if (!(lat > 24 && lat < 50 && lon > -125 && lon < -66)) return c.json({ error: 'Give a latitude and longitude inside the continental United States.' }, 400)
+  const jobMinutes = Math.min(Math.max(Number(c.req.query('jobMin')) || 45, 15), 600)
+  const plan = await buildPlan(db(c.env), { id: c.req.query('id') ?? 'field', name: c.req.query('name') ?? 'Field', lat, lon }, jobMinutes)
+  return c.json(plan, 'error' in plan ? 502 : 200)
 })
 
 app.get('/api/alerts', async c => c.json(await alertRows(db(c.env), null, 30)))
