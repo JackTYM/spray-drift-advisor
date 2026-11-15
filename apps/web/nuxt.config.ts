@@ -18,8 +18,12 @@ export default defineNuxtConfig({
   app: {
     head: {
       title: 'Spray Drift Advisor',
-      meta: [{ name: 'viewport', content: 'width=device-width, initial-scale=1' }, { name: 'theme-color', content: '#1c2530' }],
-      link: [{ rel: 'manifest', href: '/manifest.webmanifest' }],
+      meta: [{ name: 'viewport', content: 'width=device-width, initial-scale=1' }, { name: 'theme-color', content: '#0d1826' }],
+      link: [
+        { rel: 'manifest', href: '/manifest.webmanifest' },
+        { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' },
+        { rel: 'stylesheet', href: 'https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@600;700&display=swap' },
+      ],
     },
   },
 })

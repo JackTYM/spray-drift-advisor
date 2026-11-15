@@ -50,6 +50,8 @@ export class RanchDO extends DurableObject<Env> {
   private sitesTriedMs = 0
   /** Last time a client asked for data; ticking continues for a minute after. */
   private seenMs = 0
+  /** Bumped whenever the mode or data set changes, so a tick that was mid-flight can tell it is stale. */
+  private gen = 0
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -116,6 +118,7 @@ export class RanchDO extends DurableObject<Env> {
 
   async alarm() {
     const d = this.s.demo
+    const gen = this.gen
     if (d.mode === 'live') {
       if (Date.now() - this.s.fetchedMs > 15 * 60_000 || !this.s.anchors.length) {
         const anchors = await liveAnchors(this.sql)
@@ -128,6 +131,8 @@ export class RanchDO extends DurableObject<Env> {
       d.simMs += d.stepMin * 60_000
     }
     if (d.mode !== 'scenario') this.loadSites()
+    // The mode changed while feeds were loading: drop this tick and let the next one start clean.
+    if (gen !== this.gen) return
 
     const now = this.now()
     const sc = d.mode === 'scenario' ? scenarioById(d.scenarioId) : null
@@ -140,6 +145,7 @@ export class RanchDO extends DurableObject<Env> {
         if (external) continue
         const reading = drop ? undefined : virtualTower(b, interpolate(this.s.anchors, now), this.rand, true, 'modelled', source)
         await this.process(b, now, reading)
+        if (gen !== this.gen) return
       }
     }
 
@@ -243,6 +249,7 @@ export class RanchDO extends DurableObject<Env> {
     demo.stepMin = d.stepMin ?? demo.stepMin
 
     if (changed || d.reset) {
+      this.gen++
       this.s.blocks = freshBlocks()
       this.s.sessions = []
       this.s.fetchedMs = 0

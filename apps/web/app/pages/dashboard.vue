@@ -37,22 +37,21 @@ const levels = (row: any) => (row.levels ?? []).map((l: any) => `${l.heightFt} f
 <template>
   <main class="wide">
     <div class="grid3">
-      <button v-for="b in snap?.blocks ?? []" :key="b.id" class="card" style="text-align:left;cursor:pointer;font:inherit;color:inherit"
-        :style="{ outline: selected === b.id ? '3px solid #1c2530' : 'none' }" @click="selected = b.id">
-        <div class="label">{{ b.name }} · {{ b.note }}</div>
-        <span class="chip" :class="b.evaluation?.status ?? 'CAUTION'">{{ b.evaluation?.status ?? '...' }}</span>
-        <div class="muted" style="margin-top:6px">{{ reason(b) }}</div>
+      <button v-for="b in snap?.blocks ?? []" :key="b.id" class="card tile" :class="[b.evaluation?.status, { selected: selected === b.id }]" @click="selected = b.id">
+        <div class="name">{{ b.name }} <span class="muted">{{ b.note.toLowerCase() }}</span></div>
+        <div class="state">{{ b.evaluation?.status ?? 'WAIT' }}</div>
+        <div>{{ reason(b) }}</div>
       </button>
     </div>
 
     <div class="grid2">
       <section class="card">
-        <div class="label">{{ blockName(selected) }}: temperature at both heights, with forecast</div>
+        <h2>{{ blockName(selected) }}: temperature at both heights</h2>
         <Timeline :history="history.history" :forecast="history.forecast" />
       </section>
 
       <section class="card">
-        <div class="label">Compared with a single ground station</div>
+        <h2>What a ground station misses</h2>
         <template v-if="backtest">
           <div class="headline">{{ backtest.result.missedNights.length }} of {{ backtest.result.nightsCompared }} nights</div>
           <div>had an inversion aloft while the {{ snap?.ground?.station ?? 'ground' }} station's wind looked fine for spraying.</div>
@@ -63,23 +62,23 @@ const levels = (row: any) => (row.levels ?? []).map((l: any) => `${l.heightFt} f
     </div>
 
     <section class="card">
-      <div class="label">Spray jobs</div>
+      <h2>Spray jobs</h2>
       <div v-if="!sessions.length" class="muted">No jobs yet.</div>
-      <div v-for="s in sessions" :key="s.id" class="trigger">
+      <div v-for="s in sessions" :key="s.id" class="trigger plain">
         <strong>{{ blockName(s.blockId) }}</strong> · {{ s.job.product }} · {{ s.phase }} · started {{ fmtStamp(s.startedMs) }}
         <span v-if="s.overrideReason"> · override: {{ s.overrideReason }}</span>
         · <NuxtLink :to="`/record/${s.id}`">record</NuxtLink>
         · <a :href="`${api}/api/sessions/${s.id}/record?format=csv`">CSV</a>
       </div>
-      <div class="label" style="margin-top:12px">Alerts sent</div>
+      <h2 style="margin-top:16px">Alerts sent</h2>
       <div v-if="!alerts.length" class="muted">None.</div>
-      <div v-for="a in alerts.slice(0, 8)" :key="a.id" class="trigger">
+      <div v-for="a in alerts.slice(0, 8)" :key="a.id" class="trigger plain">
         {{ fmtStamp(a.time) }} · {{ a.kind }} · {{ a.channel }} to {{ a.recipient }} · {{ a.ok ? 'delivered' : 'failed: ' + a.detail }}
       </div>
     </section>
 
     <section class="card">
-      <div class="label">Log: every evaluation, time-stamped</div>
+      <h2>Log of every evaluation</h2>
       <div class="tablewrap">
         <table>
           <thead><tr><th>Time</th><th>Block</th><th>Status</th><th>Ground only</th><th>Triggered by</th><th>Readings</th><th>Ri</th></tr></thead>

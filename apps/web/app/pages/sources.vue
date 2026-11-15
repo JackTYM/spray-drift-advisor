@@ -43,7 +43,7 @@ const example = computed(() => `curl -X POST ${api}/api/readings -H 'content-typ
 <template>
   <main class="wide">
     <section class="card">
-      <div class="label">Where the data comes from</div>
+      <h2>Where the data comes from</h2>
       <div class="tablewrap">
         <table>
           <thead><tr><th>Role</th><th>Adapter</th><th>Kind</th><th>Detail</th><th>Last update</th></tr></thead>
@@ -59,7 +59,7 @@ const example = computed(() => `curl -X POST ${api}/api/readings -H 'content-typ
     </section>
 
     <section class="card">
-      <div class="label">Enter a reading by hand</div>
+      <h2>Enter a reading by hand</h2>
       <p class="muted">For a handheld reading or a what-if check. Works in Live mode: the chosen block switches to your numbers for 5 minutes, and any open spray job on it is alerted if the status changes.</p>
       <div class="row">
         <select v-model="manual.blockId" aria-label="Block"><option value="block-1">Block 1</option><option value="block-2">Block 2</option><option value="block-3">Block 3</option></select>
@@ -82,13 +82,13 @@ const example = computed(() => `curl -X POST ${api}/api/readings -H 'content-typ
 
     <div class="grid2">
       <section class="card">
-        <div class="label">Connect a tower: post a reading</div>
+        <h2>Connect a tower</h2>
         <p class="muted">Any logger with two or more heights can post JSON. The block switches from the virtual tower to your readings.</p>
         <textarea :value="example" rows="6" readonly aria-label="Example request"></textarea>
       </section>
 
       <section class="card">
-        <div class="label">Import a CSV</div>
+        <h2>Import a CSV</h2>
         <textarea v-model="csv" rows="5" aria-label="CSV text"></textarea>
         <div class="label">Column mapping</div>
         <textarea v-model="mapping" rows="9" aria-label="Column mapping as JSON"></textarea>

@@ -54,77 +54,83 @@ async function enablePush() {
 
 <template>
   <main class="phone">
-    <div class="pad">
+    <div class="blockpick">
       <select v-model="blockId" aria-label="Block">
-        <option v-for="b in BLOCKS" :key="b.id" :value="b.id">{{ b.name }} · {{ b.crop }} · {{ b.note }}</option>
+        <option v-for="b in BLOCKS" :key="b.id" :value="b.id">{{ b.name }}, {{ b.note.toLowerCase() }}</option>
       </select>
     </div>
 
-    <StatusBanner :evaluation="ev" />
+    <StatusBanner :evaluation="ev" :where="snap && block ? `${block.name} at ${fmtTime(snap.nowMs)}` : undefined" />
+
+    <TowerScene :reading="block?.reading ?? null" :delta-f="ev?.deltaF ?? 0" :ri="ev?.ri ?? 0"
+      :droplet="session?.job.droplet ?? job.droplet" :site="block?.sites[0] ?? null" />
+
+    <section class="sect">
+      <h2>Is the air mixing?</h2>
+      <MixingGauge :ri="ev?.ri ?? 0" />
+    </section>
+
+    <section class="sect">
+      <h2>Why</h2>
+      <TriggerList :triggers="ev?.triggers ?? []" />
+    </section>
+
+    <div class="pair sect" style="padding:0">
+      <div>
+        <div class="label">Ground station alone</div>
+        <span class="chip" :class="ev?.groundOnly.status ?? 'CAUTION'">{{ ev?.groundOnly.status ?? 'WAIT' }}</span>
+        <div v-if="snap?.ground" class="muted" style="margin-top:8px">
+          {{ snap.ground.tempF }}°F, wind {{ snap.ground.windMph }} mph from the {{ compass(snap.ground.windDirDeg) }}. It cannot see the air above it.
+        </div>
+      </div>
+      <div>
+        <div class="label">Next safe window</div>
+        <div v-if="ev?.status === 'GO'" class="figure">Open now</div>
+        <div v-else-if="block?.window" class="figure">{{ fmtTime(block.window.startMs) }}</div>
+        <div v-else class="figure">None in 36 h</div>
+        <div v-if="ev?.status !== 'GO' && block?.window" class="muted" style="margin-top:4px">until {{ fmtTime(block.window.endMs) }}. You will be alerted when it opens.</div>
+      </div>
+    </div>
+
+    <section class="sect">
+      <template v-if="!session">
+        <h2>Spray job</h2>
+        <select v-model="job.product" aria-label="Product"><option v-for="p in PRODUCTS" :key="p.name">{{ p.name }}</option></select>
+        <select v-model="job.droplet" aria-label="Droplet size">
+          <option value="fine">Fine droplets</option><option value="medium">Medium droplets</option><option value="coarse">Coarse droplets</option>
+        </select>
+        <div class="row">
+          <label>Label minimum wind, mph<input v-model.number="labelMin" type="number" placeholder="3"></label>
+          <label>Label maximum wind, mph<input v-model.number="labelMax" type="number" placeholder="10"></label>
+        </div>
+        <label v-if="ev?.status === 'STOP'">Reason for spraying during a Stop (goes in the record)
+          <input v-model="overrideReason">
+        </label>
+        <button class="btn" :disabled="!ev" @click="create('spraying')">Start spraying</button>
+        <button v-if="ev && ev.status !== 'GO'" class="btn secondary" @click="create('waiting')">Alert me when it is safe</button>
+      </template>
+
+      <template v-else>
+        <h2>{{ session.phase === 'waiting' ? 'Waiting for a safe window' : session.phase === 'spraying' ? 'Spraying' : 'Post-spray watch' }}</h2>
+        <div>{{ session.job.product }}, {{ session.job.droplet }} droplets, since {{ fmtTime(session.startedMs) }}</div>
+        <div v-if="session.overrideReason" class="muted">Override reason: {{ session.overrideReason }}</div>
+        <template v-if="session.phase === 'waiting'">
+          <label v-if="ev?.status === 'STOP'" style="margin-top:10px">Reason for spraying during a Stop (goes in the record)
+            <input v-model="overrideReason">
+          </label>
+          <button class="btn" @click="start">Start spraying</button>
+          <button class="btn secondary" @click="finish">Cancel</button>
+        </template>
+        <button v-else-if="session.phase === 'spraying'" class="btn" @click="finish">Finish spraying</button>
+        <div v-else class="muted" style="margin-top:8px">Still watching. You will be alerted if conditions turn.</div>
+        <p><NuxtLink :to="`/record/${session.id}`">View the job record</NuxtLink></p>
+      </template>
+      <div v-if="error" class="error" role="alert">{{ error }}</div>
+    </section>
 
     <div class="pad">
-      <div class="card" style="padding:8px">
-        <TowerScene :reading="block?.reading ?? null" :delta-f="ev?.deltaF ?? 0" :ri="ev?.ri ?? 0" :droplet="session?.job.droplet ?? job.droplet" />
-      </div>
-
-      <div class="card">
-        <div class="label">Is the air mixing?</div>
-        <MixingGauge :ri="ev?.ri ?? 0" />
-      </div>
-
-      <div class="card">
-        <div class="label">What triggered this</div>
-        <TriggerList :triggers="ev?.triggers ?? []" />
-      </div>
-
-      <div class="card">
-        <div class="label">Ground station alone ({{ snap?.ground?.station ?? 'none' }})</div>
-        <span class="chip" :class="ev?.groundOnly.status ?? 'CAUTION'">{{ ev?.groundOnly.status ?? '...' }}</span>
-        <span v-if="snap?.ground" class="muted"> {{ snap.ground.tempF }}°F, wind {{ snap.ground.windMph }} mph from {{ compass(snap.ground.windDirDeg) }}. It cannot see the air above it.</span>
-      </div>
-
-      <div class="card">
-        <div class="label">Next safe window</div>
-        <template v-if="ev?.status === 'GO'"><strong>Open now</strong></template>
-        <template v-else-if="block?.window"><strong>{{ fmtTime(block.window.startMs) }} to {{ fmtTime(block.window.endMs) }}</strong></template>
-        <template v-else><strong>None in the next 36 hours</strong></template>
-        <div class="muted">As of {{ snap ? fmtStamp(snap.nowMs) : '...' }}</div>
-      </div>
-
-      <div class="card">
-        <template v-if="!session">
-          <div class="label">Spray job</div>
-          <select v-model="job.product" aria-label="Product"><option v-for="p in PRODUCTS" :key="p.name">{{ p.name }}</option></select>
-          <select v-model="job.droplet" aria-label="Droplet size">
-            <option value="fine">Fine droplets</option><option value="medium">Medium droplets</option><option value="coarse">Coarse droplets</option>
-          </select>
-          <div class="row">
-            <input v-model.number="labelMin" type="number" placeholder="Label min wind (mph)" aria-label="Label minimum wind in mph">
-            <input v-model.number="labelMax" type="number" placeholder="Label max wind (mph)" aria-label="Label maximum wind in mph">
-          </div>
-          <input v-if="ev?.status === 'STOP'" v-model="overrideReason" placeholder="Reason to override STOP (logged)" aria-label="Override reason">
-          <button class="btn" :disabled="!ev" @click="create('spraying')">Start spraying</button>
-          <button v-if="ev && ev.status !== 'GO'" class="btn secondary" @click="create('waiting')">Tell me when it is safe</button>
-        </template>
-
-        <template v-else>
-          <div class="label">Session: {{ session.phase }}</div>
-          <div>{{ session.job.product }} · {{ session.job.droplet }} droplets · since {{ fmtTime(session.startedMs) }}</div>
-          <div v-if="session.overrideReason" class="muted">Override reason: {{ session.overrideReason }}</div>
-          <template v-if="session.phase === 'waiting'">
-            <input v-if="ev?.status === 'STOP'" v-model="overrideReason" placeholder="Reason to override STOP (logged)" aria-label="Override reason">
-            <button class="btn" @click="start">Start spraying</button>
-            <button class="btn secondary" @click="finish">Cancel</button>
-          </template>
-          <button v-else-if="session.phase === 'spraying'" class="btn" @click="finish">Finish spraying</button>
-          <div v-else class="muted">Post-spray watch is running. You will be alerted if conditions turn.</div>
-          <NuxtLink :to="`/record/${session.id}`" class="muted">View job record</NuxtLink>
-        </template>
-        <div v-if="error" class="error" role="alert">{{ error }}</div>
-      </div>
-
-      <button class="btn secondary" @click="enablePush">Turn on alerts for this device</button>
-      <div class="muted">{{ pushState }}</div>
+      <button class="btn secondary" @click="enablePush">Turn on alerts for this phone</button>
+      <div class="muted" role="status">{{ pushState }}</div>
     </div>
   </main>
 </template>

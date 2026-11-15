@@ -27,21 +27,21 @@ const print = () => window.print()
       </section>
 
       <section class="card">
-        <div class="label">Status changes</div>
-        <div v-for="e in changes" :key="e.id" class="trigger">
+        <h2>Status changes</h2>
+        <div v-for="e in changes" :key="e.id" class="trigger plain">
           <span class="num">{{ fmtStamp(e.time) }}</span> <span class="chip" :class="e.status">{{ e.status }}</span>
           {{ e.triggers.map((t: any) => t.text).join(' ') || 'No triggers.' }}
         </div>
       </section>
 
       <section class="card">
-        <div class="label">Alerts sent</div>
+        <h2>Alerts sent</h2>
         <div v-if="!record.alerts.length" class="muted">None.</div>
-        <div v-for="a in record.alerts" :key="a.id" class="trigger">{{ fmtStamp(a.time) }} · {{ a.kind }} · {{ a.channel }} to {{ a.recipient }} · {{ a.ok ? 'delivered' : 'failed' }} · {{ a.body }}</div>
+        <div v-for="a in record.alerts" :key="a.id" class="trigger plain">{{ fmtStamp(a.time) }} · {{ a.kind }} · {{ a.channel }} to {{ a.recipient }} · {{ a.ok ? 'delivered' : 'failed' }} · {{ a.body }}</div>
       </section>
 
       <section class="card">
-        <div class="label">All evaluations ({{ record.evaluations.length }})</div>
+        <h2>All evaluations ({{ record.evaluations.length }})</h2>
         <div class="tablewrap">
           <table>
             <thead><tr><th>Time</th><th>Status</th><th>Ground only</th><th>Temp difference</th><th>Ri</th><th>Readings</th></tr></thead>

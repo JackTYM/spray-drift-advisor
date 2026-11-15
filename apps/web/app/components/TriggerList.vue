@@ -5,9 +5,10 @@ defineProps<{ triggers: Trigger[] }>()
 
 <template>
   <div>
-    <div v-if="!triggers.length" class="muted">Nothing triggered.</div>
+    <div v-if="!triggers.length" class="trigger plain">Nothing is triggering. No inversion, and wind is within limits.</div>
     <div v-for="(t, i) in triggers" :key="i" class="trigger">
-      <span class="chip" :class="t.level">{{ t.level }}</span> {{ t.text }}
+      <span class="chip" :class="t.level">{{ t.level }}</span>
+      <span>{{ t.text }}</span>
     </div>
   </div>
 </template>

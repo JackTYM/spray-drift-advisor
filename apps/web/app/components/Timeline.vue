@@ -3,8 +3,8 @@ import type { Status } from '@drift/engine'
 
 interface Row { time: string; status: Status; levels: { heightFt: number; tempF: number }[] | null }
 const props = defineProps<{ history: Row[]; forecast: { timeMs: number; status: Status }[] }>()
-const W = 640, H = 190, TOP = 12, BOTTOM = 130, STRIP = 144
-const color: Record<Status, string> = { GO: '#1f8a4c', CAUTION: '#b97a00', STOP: '#b3261e' }
+const W = 640, H = 210, TOP = 12, BOTTOM = 130, STRIP = 144
+const color: Record<Status, string> = { GO: '#2fbf71', CAUTION: '#f0b429', STOP: '#d93a26' }
 
 const points = computed(() => props.history.filter(r => r.levels && r.levels.length >= 2).map(r => {
   const s = [...r.levels!].sort((a, b) => a.heightFt - b.heightFt)
@@ -26,16 +26,16 @@ const nowX = computed(() => (points.value.length ? x(points.value[points.value.l
 <template>
   <div v-if="points.length < 2" class="muted">Waiting for readings.</div>
   <svg v-else :viewBox="`0 0 ${W} ${H}`" width="100%" role="img" aria-label="Temperature at the lowest and highest tower levels over time, with a status strip that continues into the forecast">
-    <polyline :points="line('lo')" fill="none" stroke="#1f6fb5" stroke-width="2.2" />
-    <polyline :points="line('hi')" fill="none" stroke="#c2571a" stroke-width="2.2" />
+    <polyline :points="line('lo')" fill="none" stroke="#6cb8f0" stroke-width="2.2" />
+    <polyline :points="line('hi')" fill="none" stroke="#f2994a" stroke-width="2.2" />
     <rect v-for="(p, i) in points" :key="'h' + i" :x="x(p.t)" :y="STRIP" :width="stripWidth(i, points)" height="12" :fill="color[p.status]" />
     <rect v-for="(f, i) in fc" :key="'f' + i" :x="x(f.t)" :y="STRIP" :width="stripWidth(i, fc)" height="12" :fill="color[f.status]" opacity="0.45" />
-    <line :x1="nowX" :x2="nowX" :y1="TOP" :y2="STRIP + 12" stroke="#16202c" stroke-dasharray="3 3" />
-    <text :x="nowX + 4" :y="TOP + 10" font-size="11" fill="#16202c">now</text>
-    <text x="8" :y="H - 8" font-size="11" fill="#56657a">{{ fmtTime(range.t0) }}</text>
-    <text :x="W - 8" :y="H - 8" font-size="11" fill="#56657a" text-anchor="end">{{ fmtTime(range.t1) }}</text>
-    <text x="8" :y="H - 22" font-size="11" fill="#1f6fb5">lowest level</text>
-    <text x="90" :y="H - 22" font-size="11" fill="#c2571a">highest level</text>
-    <text :x="W - 8" :y="H - 22" font-size="11" fill="#56657a" text-anchor="end">pale strip: forecast</text>
+    <line :x1="nowX" :x2="nowX" :y1="TOP" :y2="STRIP + 12" stroke="#e9eff6" stroke-dasharray="3 3" />
+    <text :x="nowX + 4" :y="TOP + 10" font-size="13" fill="#e9eff6">now</text>
+    <text x="8" :y="H - 8" font-size="13" fill="#93a5bb">{{ fmtTime(range.t0) }}</text>
+    <text :x="W - 8" :y="H - 8" font-size="13" fill="#93a5bb" text-anchor="end">{{ fmtTime(range.t1) }}</text>
+    <text x="8" :y="H - 22" font-size="13" fill="#6cb8f0">lowest level</text>
+    <text x="110" :y="H - 22" font-size="13" fill="#f2994a">highest level</text>
+    <text :x="W - 8" :y="H - 22" font-size="13" fill="#93a5bb" text-anchor="end">pale strip: forecast</text>
   </svg>
 </template>

@@ -18,7 +18,7 @@ const speed = () => $fetch(`${api}/api/demo`, { method: 'POST', body: { stepMin:
 <template>
   <main class="phone pad">
     <div class="card">
-      <div class="label">Demo control</div>
+      <h2>Demo control</h2>
       <select v-model="mode" aria-label="Mode">
         <option value="live">Live: today's real weather</option>
         <option value="scenario">Scenario: scripted night</option>
