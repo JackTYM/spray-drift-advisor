@@ -25,7 +25,7 @@ async function send() {
 
 <template>
   <div class="plantext">
-    <button class="btn secondary" :disabled="busy" @click="send">{{ busy ? 'Sending…' : 'Text me this plan' }}</button>
+    <button class="btn secondary" :disabled="busy" @click="send">{{ busy ? 'Sending…' : 'Text the team this plan' }}</button>
     <div role="status">
       <p v-if="result" class="muted">
         “{{ result.text }}”
