@@ -91,6 +91,17 @@ watch(advanced, on => {
   else if (allTabs.find(t => t.id === tab.value)?.advanced) tab.value = 'route'
 })
 const volatile = ref(false)
+/** The walkthrough sets what the page shows at each step. */
+function demoGo(step: { fieldId?: string; pickedMs?: number | null; stage?: 'map' | '3d'; tab?: string; advanced?: boolean }) {
+  if (step.fieldId && step.fieldId !== fieldId.value) fieldId.value = step.fieldId
+  if (step.advanced !== undefined) advanced.value = step.advanced
+  // After the field and Advanced changes have settled.
+  nextTick(() => nextTick(() => {
+    if (step.pickedMs !== undefined) picked.value = step.pickedMs
+    if (step.stage) stage.value = step.stage
+    if (step.tab) tab.value = step.tab as TabId
+  }))
+}
 const tower = computed(() => (plan.value ? towerModelFor(plan.value.terrain) : null))
 const used = computed(() => plan.value?.estimate.stations.filter(s => s.weight >= 0.01) ?? [])
 const signed = (n: number, unit = '') => `${n > 0 ? '+' : ''}${n}${unit}`
@@ -146,6 +157,7 @@ const askContext = computed(() => {
 
 <template>
   <main class="now">
+    <GuidedDemo :hours="plans['block-3']?.hours ?? []" @go="demoGo" />
     <div class="topline">
       <div class="blocktabs" role="tablist" aria-label="Fields, soonest window first">
         <button v-for="x in ordered" :key="x.f.id" role="tab" :aria-selected="x.f.id === fieldId" :class="[x.o.status ?? 'wait', { on: x.f.id === fieldId }]" @click="fieldId = x.f.id">
