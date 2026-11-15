@@ -1,7 +1,7 @@
 <template>
   <div>
     <nav class="nav">
-      <NuxtLink to="/" class="brand">Spray Drift Advisor</NuxtLink>
+      <NuxtLink to="/" class="brand">Stillair</NuxtLink>
       <NuxtLink to="/">Applicator</NuxtLink>
       <NuxtLink to="/dashboard">Dashboard</NuxtLink>
       <NuxtLink to="/sources">Sources</NuxtLink>

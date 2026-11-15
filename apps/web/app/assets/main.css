@@ -133,3 +133,13 @@ td.num { white-space: nowrap; }
   .nav .brand { font-size: 19px; }
   .nav a:not(.brand) { font-size: 14px; }
 }
+
+/* ---------- map ---------- */
+.blockmap { height: 420px; border-radius: 4px; background: #0a1422; }
+.mapfact { font-size: 17px; margin: 12px 0 4px; }
+.crop-label { font: 600 12px var(--text); color: #fff; text-align: center; text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 6px #000; white-space: nowrap; }
+.leaflet-tooltip.block-label { font: 700 14px var(--display); letter-spacing: .03em; background: #0d1826; color: #e9eff6; border: 1px solid #2b3f5c; box-shadow: none; }
+.leaflet-tooltip.block-label::before { display: none; }
+.leaflet-container { font-family: var(--text); }
+.leaflet-control-attribution { background: rgba(13, 24, 38, .8) !important; color: #93a5bb !important; }
+.leaflet-control-attribution a { color: #93a5bb !important; }

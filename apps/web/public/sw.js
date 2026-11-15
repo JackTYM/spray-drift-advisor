@@ -1,5 +1,5 @@
 self.addEventListener('push', event => {
-  const d = event.data ? event.data.json() : { title: 'Spray Drift Advisor', body: '' }
+  const d = event.data ? event.data.json() : { title: 'Stillair', body: '' }
   event.waitUntil(self.registration.showNotification(d.title, { body: d.body, tag: d.tag, requireInteraction: true }))
 })
 self.addEventListener('notificationclick', event => {

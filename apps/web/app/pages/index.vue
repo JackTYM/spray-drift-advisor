@@ -6,6 +6,8 @@ const route = useRoute()
 const blockId = ref(String(route.query.block ?? 'block-3'))
 const block = computed(() => snap.value?.blocks.find(b => b.id === blockId.value) ?? null)
 const ev = computed(() => block.value?.evaluation ?? null)
+const surroundings = useSurroundings(blockId)
+const facts = computed(() => downwindFacts(block.value, surroundings.value))
 const session = computed(() => snap.value?.sessions.find(s => s.blockId === blockId.value && s.phase !== 'closed') ?? null)
 
 const job = reactive<Job>({ product: PRODUCTS[0].name, volatility: PRODUCTS[0].volatility, droplet: 'medium' })
@@ -73,6 +75,16 @@ async function enablePush() {
     <section class="sect">
       <h2>Why</h2>
       <TriggerList :triggers="ev?.triggers ?? []" />
+    </section>
+
+    <section v-if="facts" class="sect">
+      <h2>Downwind</h2>
+      <template v-if="facts.calm">Wind at 5 ft is near calm, so drift has no clear direction.</template>
+      <template v-else>
+        Spray would be carried toward the <strong>{{ facts.dir }}</strong>.
+        <strong>{{ facts.addresses.length }}</strong> {{ facts.addresses.length === 1 ? 'address' : 'addresses' }} within {{ BUFFER_M }} m that way<template v-if="facts.crop">, over land mapped as {{ facts.crop.toLowerCase() }}</template>.
+      </template>
+      <div class="muted" style="margin-top:6px">{{ BUFFER_M }} m is an example buffer. <NuxtLink to="/dashboard">See the map</NuxtLink></div>
     </section>
 
     <div class="pair sect" style="padding:0">

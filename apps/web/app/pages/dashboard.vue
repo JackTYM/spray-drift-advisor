@@ -8,6 +8,7 @@ const log = ref<any[]>([])
 const sessions = ref<any[]>([])
 const alerts = ref<any[]>([])
 const backtest = ref<any>(null)
+const surroundings = useSurroundings(selected)
 
 async function refresh() {
   try {
@@ -46,11 +47,15 @@ const levels = (row: any) => (row.levels ?? []).map((l: any) => `${l.heightFt} f
 
     <div class="grid2">
       <section class="card">
+        <h2>What is downwind of {{ blockName(selected) }}</h2>
+        <BlockMap :blocks="snap?.blocks ?? []" :selected="selected" :surroundings="surroundings" @select="selected = $event" />
+      </section>
+      <div>
+        <section class="card">
         <h2>{{ blockName(selected) }}: temperature at both heights</h2>
         <Timeline :history="history.history" :forecast="history.forecast" />
       </section>
-
-      <section class="card">
+        <section class="card">
         <h2>What a ground station misses</h2>
         <template v-if="backtest">
           <div class="headline">{{ backtest.result.missedNights.length }} of {{ backtest.result.nightsCompared }} nights</div>
@@ -59,6 +64,7 @@ const levels = (row: any) => (row.levels ?? []).map((l: any) => `${l.heightFt} f
         </template>
         <div v-else class="muted">No backtest has been run yet.</div>
       </section>
+      </div>
     </div>
 
     <section class="card">

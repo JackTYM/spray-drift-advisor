@@ -1,8 +1,9 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { parseReading, readingsFromCsv, summarize, type CsvMapping } from '@drift/engine'
+import { BLOCKS, parseReading, readingsFromCsv, summarize, type CsvMapping } from '@drift/engine'
 import { alertRows, db, insertRecorded, latestBacktest, logRows, saveSubscription, sessionById, sessionRows } from './db'
 import type { Env } from './env'
+import { blockSurroundings } from './feeds'
 
 export { RanchDO } from './ranch-do'
 
@@ -32,6 +33,12 @@ app.post('/api/import/csv', async c => {
 app.get('/api/blocks/:id/history', async c => {
   const rows = await logRows(db(c.env), c.req.param('id'), null, 240)
   return c.json({ history: rows.reverse(), forecast: await ranch(c.env).forecast(c.req.param('id')) })
+})
+
+app.get('/api/blocks/:id/surroundings', async c => {
+  const block = BLOCKS.find(b => b.id === c.req.param('id'))
+  if (!block) return c.json({ error: 'unknown block' }, 404)
+  return c.json(await blockSurroundings(db(c.env), block))
 })
 
 app.get('/api/log', async c => {

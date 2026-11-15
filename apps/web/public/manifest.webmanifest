@@ -1,9 +1,9 @@
 {
-  "name": "Spray Drift Advisor",
-  "short_name": "Drift Advisor",
+  "name": "Stillair",
+  "short_name": "Stillair",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#1c2530",
-  "theme_color": "#1c2530",
+  "background_color": "#0d1826",
+  "theme_color": "#0d1826",
   "icons": []
 }
