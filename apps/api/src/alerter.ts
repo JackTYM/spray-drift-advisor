@@ -39,8 +39,9 @@ export async function sendLinq(env: Env, phone: string, text: string): Promise<{
 
 export const alertPhones = (env: Env): string[] => (env.ALERT_PHONES ?? '').split(',').map(p => p.trim()).filter(Boolean)
 
+/** Automatic texts (status changes, planned-window changes) are off unless AUTO_TEXTS is "on". Replies and the "Text the team" button are unaffected. */
 async function imessage(env: Env, sql: Sql, a: AlertMessage) {
-  if (!env.LINQ_API_KEY) return
+  if (!env.LINQ_API_KEY || env.AUTO_TEXTS !== 'on') return
   for (const phone of alertPhones(env)) {
     const r = await sendLinq(env, phone, `${a.title}\n${a.body}`)
     await insertAlert(sql, { ...a, channel: 'imessage', recipient: phone, ...r })

@@ -12,4 +12,5 @@ export interface Env {
   LINQ_API_KEY?: string
   /** Comma-separated E.164 numbers that receive iMessage alerts. */
   ALERT_PHONES?: string
+  AUTO_TEXTS?: string
 }
